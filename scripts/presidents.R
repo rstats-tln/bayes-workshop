@@ -8,7 +8,7 @@
 
 
 #'
-#' ## Loading required libraries
+#' ## Loading some required libraries
 #' 
 #+
 library(tidyverse)
@@ -41,8 +41,8 @@ library(bayesplot)
 
 
 #'
-#' We have two columns in our tibble -- presidents names "name" and height in 
-#' cm "height_cm".
+#' We have two columns in our tibble -- presidents names ("name") and height in 
+#' cm ("height_cm").
 #'
 
 
@@ -86,8 +86,12 @@ ggplot(data = president_heights) +
 #' variable (must be in data) and on the right side we define that we are interested only in 
 #' modeling "Intercept".
 #' 
+#' Here, for the sake of our demonstrations, we define that intercept is also 
+#' part of all regression coefficients, so that sampling from its prior 
+#' becomes possible, thats why use ... ~ 0 + Intercept + ... in the formulas.
+#' 
 #+
-f <- height_cm ~ 1
+f <- height_cm ~ 0 + Intercept # height_cm ~ 1
 
 
 #'
@@ -112,22 +116,40 @@ get_prior(formula = f, data = president_heights, family = gaussian())
 #+
 if (!dir.exists(here("models"))) dir.create(here("models")) # we keep models only locally
 
-#'
-#' Here we fit intercept-only model using president heights data and default priors:
+#' 
+#' 
+#' #### Testing different priors for Intercept
+#' 
+#' Here we fit intercept-only model using president heights data and 
+#' **uninformative** priors: "let data speak"
 #'
 #'
 #+
+priors <- prior("normal(0, 200)", class = "b", coef = "Intercept")
 mod1 <- brm(
   formula = f, 
   data = president_heights, 
   family = gaussian(), 
+  prior = priors,
   chains = 3, 
-  file = here("models/height_cm~1"),
+  file = here("models/height_cm~0+Intercept_uninformative"),
   sample_prior = "yes"
   )
 
-#'
-#'
+#' 
+#' #### Model diagnostics parameters
+#' 
+#' Rhat function produces R-hat convergence diagnostic, which compares the 
+#' between- and within-chain estimates for model parameters. 
+#' If chains have not mixed well (ie, the between- and within-chain estimates 
+#' don't agree), Rhat is larger than 1. 
+#' It's recommend to run at least four chains by default and only using the 
+#' sample if Rhat is less than 1.05. 
+#' 
+#' Both bulk-ESS and tail-ESS should be at least ~100 per Markov Chain in order 
+#' to be reliable and indicate that estimates of respective posterior 
+#' quantiles are reliable.
+#' 
 #'
 #+
 summary(mod1)
@@ -139,9 +161,8 @@ plot(mod1)
 
 
 #'
-#' In our first model we did not specify custom priors, so default priors, 
-#' calculated from data, were used:
-#'
+#' Let's check our priors from model:
+#' 
 #+
 mod1$prior
 
@@ -159,90 +180,31 @@ post_sam1 %>%
   pivot_longer(cols = matches("Intercept")) %>% 
   ggplot() +
   geom_density(aes(value, linetype = name)) +
-  labs(title = str_c("Default prior: ", mod1$prior[1,1])) +
+  labs(title = str_c("Default prior: ", mod1$prior[2, 1])) +
   facet_wrap(~name, ncol = 1, scales = "free_y")
 
-#'
-#' #### Testing different priors for Intercept
-#' 
-#' There are possible multiple prior choices:     
-#' - flat prior,      
-#' - calculate prior from data,     
-#' - uninformative prior,    
-#' - good informative prior, 
-#' - bad informative prior   
-#' 
-#' 
-#'
-#' **Model with uninformative prior** 
-#' 
-#' Specifying uninformative uniform prior for Intercept term: "let data speak"
-#'
-#+
-priors <- prior("uniform(50, 300)", class = "b", lb = 50, ub = 300)
 
 #'
-#' Here we fit intercept-only model using president heights data and default priors:
-#+
-mod2 <- brm(
-  formula = height_cm ~ 0 + Intercept, 
-  data = president_heights, 
-  family = gaussian(), 
-  prior = priors,
-  chains = 3, 
-  file = here("models/height_cm~1_uninformative_uniform"),
-  sample_prior = "yes"
-)
-
-
-#'
-#'
-#'
-#+
-summary(mod2)
-
-#'
-#'
-#+
-plot(mod2)
-
-
-#'
-#'
-#+
-post_sam2 <- posterior_samples(mod2)
-post_sam2 <- as_tibble(post_sam2)
-
-#'
-#'
-#+
-post_sam2 %>% 
-  select(matches("b")) %>% 
-  pivot_longer(cols = matches("b")) %>% 
-  ggplot() +
-  geom_density(aes(value, linetype = name)) +
-  labs(title = str_c("Uninformative prior: ", mod2$prior[1,1])) +
-  facet_wrap(~name, ncol = 1, scales = "free_y")
-
-#'
-#' **Good informative prior**
+#' **Weakly informative prior**
 #' 
 #' Specifying good informative prior for Intercept term.
-#' We have found information that average male height in USA is 178 cm (measured ).
+#' We have found information that average male height in USA is 178 cm 
+#' (measured 2015-2018).
+#' 
+#' Weakly informative priors are designed to provide moderate regularization 
+#' and help stabilize computation
 #'
-#+
-priors <- prior("normal(178, 10)", class = "Intercept")
-
 #'
 #' Here we fit intercept-only model using president heights data and default priors:
 #+
+priors <- prior("normal(178, 10)", class = "b", coef = "Intercept")
 mod3 <- brm(
   formula = f, 
   data = president_heights, 
   family = gaussian(), 
   prior = priors,
   chains = 3, 
-  file = here("models/height_cm~1_good_informative_prior"),
+  file = here("models/height_cm~0+Intercept_weakly_informative"),
   sample_prior = "yes"
 )
 
@@ -273,7 +235,7 @@ post_sam3 %>%
   pivot_longer(cols = matches("Intercept")) %>% 
   ggplot() +
   geom_density(aes(value, linetype = name)) +
-  labs(title = str_c("Good informative prior: ", mod3$prior[1,1])) +
+  labs(title = str_c("Good informative prior: ", mod3$prior[2,1])) +
   facet_wrap(~name, ncol = 1, scales = "free_y")
 
 #'
@@ -283,7 +245,7 @@ post_sam3 %>%
 #' We have found information that average male height in USA is 178 cm (measured ).
 #'
 #+
-priors <- prior("normal(225, 7.5)", class = "Intercept")
+priors <- prior("normal(225, 2.5)", class = "b", coef = "Intercept")
 
 #'
 #' Here we fit intercept-only model using president heights data and default priors:
@@ -346,27 +308,25 @@ post_sam4 %>%
 #' 
 #'
 #'
-#' Let's compare, how much influence a strong prior has had on the results 
+#' Let's compare, how much different priors have on the results 
 #' of a Bayesian analysis.
+#' 
+#' We test hypothesis that USA presidents are above average tall, 
+#' with contemporary average male height 178 cm.
 #'
 #'
-
-
-#' Default prior
-plot(hypothesis(mod1, "Intercept > 178"), plot = FALSE)[[1]] + 
-  labs(title = str_c("Default prior: ", mod1$prior[1,1]))
-
 #' Uninformative prior: "let data speak"
-plot(hypothesis(mod2, "Intercept > 178"), plot = FALSE, ignore_prior = TRUE)[[1]] +
-  labs(title = str_c("Uninformative prior: ", mod2$prior[1,1]))
+plot(hypothesis(mod1, "Intercept > 178"), plot = FALSE)[[1]] + 
+  labs(title = str_c("Uninformative prior: ", mod1$prior[2,1])) +
+  scale_x_continuous(limits = c(-50, 50))
 
 #' Good informative prior (?should we  use weakly informative prior instead?)
 plot(hypothesis(mod3, "Intercept > 178"), plot = FALSE)[[1]] +
-  labs(title = str_c("Good informative prior: ", mod3$prior[1,1]))
+  labs(title = str_c("Good informative prior: ", mod3$prior[2,1]))
 
 #' Bad informative prior
 plot(hypothesis(mod4, "Intercept > 178"), plot = FALSE)[[1]] +
-  labs(title = str_c("Bad informative prior: ", mod4$prior[1,1]))
+  labs(title = str_c("Bad informative prior: ", mod4$prior[2,1]))
 
 
 
@@ -458,4 +418,10 @@ ppc_stat(y, yrep, stat = "q75", binwidth = 5)
 #'
 #+
 mcmc_areas(mod5, pars = "b_Intercept", prob = 0.50, prob_outer = 0.9)
+
+
+
+
+
+
 

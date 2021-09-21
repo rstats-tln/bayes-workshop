@@ -1,0 +1,529 @@
+---
+title: "Starting with Bayes statistics by estimating mean"
+subtitle: "Simple intercept-only model"
+author: "Taavi Päll and Ülo Maiväli"
+date: "2021-10-02"
+output: github_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Loading some required libraries
+
+```{r}
+library(tidyverse)
+library(here)
+library(brms)
+library(bayesplot)
+library(tidybayes)
+```
+
+## Getting data
+
+We will use USA president heights data.
+
+### Downloading US president heights data
+
+President heights were copy-pasted from
+[potus.com](https://www.potus.com/presidential-facts/presidential-heights/)
+and after preprocessing (keeping only names and height in cm) saved to
+`data` subfolder in our project folder.
+
+### Importing president heights data
+
+Practice safe paths. Use projects and the **here** package. How can you
+avoid `setwd()` at the top of every script? Organize each logical
+project into a folder on your computer.
+
+```{r}
+(president_heights <- read_csv(here("data/president_heights.csv"), col_types = "cd"))
+```
+
+We have two columns in our tibble -- presidents names ("name") and
+height in cm ("height_cm").
+
+## Visualization
+
+As always, any analysis should start with data visualization to avoid
+[Datasaurus](https://itsalocke.com/datasaurus/) appearing in the end.
+
+Simple scatter plot, starting with tallest presidents.
+
+-   Abraham Lincoln was the tallest president at 193 cm.
+-   James Madison was the shortest president at 163 cm.
+-   The average height of the presidents is 180 cm.
+
+```{r}
+ggplot(data = president_heights) +
+ geom_point(aes(x = height_cm, y = fct_reorder(name, height_cm))) +
+ theme(axis.title.y = element_blank())
+```
+
+Histogram shows that most frequently US presidents have been 183 cm
+tall.
+
+```{r}
+ggplot(data = president_heights) +
+ geom_histogram(aes(x = height_cm), binwidth = 1) +
+ scale_y_continuous(breaks = scales::pretty_breaks())
+```
+
+## Modeling
+
+### Simple intercept-only model
+
+We denote our intercept-only model like so:
+
+$$\text{height_cm} \sim \text{Normal}(\text{mu}, \text{sigma})$$
+
+As for R model formula, on left side we define "height_cm" as our
+response variable (must be in data) and on the right side we define that
+we are interested only in modeling "Intercept".
+
+Here, for the sake of our demonstrations, we define that intercept is
+also part of all regression coefficients, so that sampling from its
+prior becomes possible, that's why use ... ~ 0 + Intercept + ... in the
+formulas.
+
+```{r}
+f <- height_cm ~ 0 + Intercept # height_cm ~ 1
+```
+
+Let's have a look at the parameters in our model for which we can
+specify priors and default priors.
+
+```{r}
+get_prior(formula = f, data = president_heights, family = gaussian())
+```
+
+To fit a **brms** model, we need to specify minimally:
+
+1.  **model formula** in lme4 syntax
+2.  **data** as data.frame and
+3.  **family** to specify response distribution and **link function**.
+
+Additionally, we want to run three chains and save fitted model to a
+file in `models` subfolder (next line creates this folder if missing) to
+avoid always refitting when updating and rerunning the script.
+
+If you need to refit the model, then go to models folder and delete the
+model file (.rds format).
+
+```{r}
+if (!dir.exists(here("models"))) dir.create(here("models")) # we keep models only locally
+```
+
+#### Testing different priors for Intercept
+
+Here we fit intercept-only model using president heights data and
+**uninformative** priors: "let data speak".
+
+There are several reasons for using non-informative priors, including:
+
+-   Not having any useful prior information or strong personal opinion
+    upon which to base an informative prior.  
+-   a non-informative prior gives a result numerically similar to a
+    frequentist approach when little or no prior information is
+    provided, while allowing for use of prior information when it
+    exists.  
+-   *ad hoc* sensitivity analysis to see how much influence a strong
+    prior has had on the results of a Bayesian analysis.
+
+```{r}
+priors <- prior("normal(0, 200)", class = "b", coef = "Intercept")
+mod1 <- brm(
+ formula = f, 
+ data = president_heights, 
+ family = gaussian(), 
+ prior = priors,
+ chains = 3, 
+ file = here("models/height_cm~0+Intercept_uninformative"),
+ sample_prior = "yes"
+ )
+```
+
+#### Model diagnostics parameters
+
+**Rhat** function produces R-hat convergence diagnostic, which compares
+the between- and within-chain estimates for model parameters. If chains
+have not mixed well (ie, the between- and within-chain estimates don't
+agree), Rhat is larger than 1. It's recommend to run at least four
+chains by default and only using the sample if Rhat is less than 1.05.
+
+Both **bulk-ESS** and **tail-ESS** should be at least \~100 per Markov
+Chain in order to be reliable and indicate that estimates of respective
+posterior quantiles are reliable.
+
+```{r}
+summary(mod1)
+```
+
+```{r}
+plot(mod1)
+```
+
+Let's check our priors from model:
+
+```{r}
+mod1$prior
+```
+
+```{r}
+post_sam1 <- as_tibble(posterior_samples(mod1))
+```
+
+```{r}
+post_sam1 %>% 
+ select(matches("Intercept")) %>% 
+ pivot_longer(cols = matches("Intercept")) %>% 
+ ggplot() +
+ geom_density(aes(value, linetype = name)) +
+ labs(title = str_c("Uninformative prior: ", mod1$prior[2, 1])) +
+ facet_wrap(~name, ncol = 1, scales = "free_y")
+```
+
+**Weakly informative prior**
+
+To specifying weakly informative prior for Intercept, we can use
+information obtained from Wikipedia, that average male height in USA is
+178 cm (measured 2015-2018).
+
+Weakly informative priors are designed to provide moderate
+regularization and help stabilize computation.
+
+```{r}
+priors <- prior("normal(178, 10)", class = "b", coef = "Intercept") 
+mod2 <- brm(
+  formula = f, 
+  data = president_heights, 
+  family = gaussian(), 
+  prior = priors, 
+  chains = 3, 
+  file = here("models/height_cm~0+Intercept_weakly_informative"), 
+  sample_prior = "yes"
+  )
+summary(mod2)
+```
+
+```{r}
+plot(mod2)
+```
+
+```{r}
+post_sam2 <- as_tibble(posterior_samples(mod2))
+post_sam2 %>% 
+  select(matches("Intercept")) %>% 
+  pivot_longer(cols = matches("Intercept")) %>% 
+  ggplot() + 
+  geom_density(aes(value, linetype = name)) + 
+  labs(title = str_c("Weakly informative prior: ", mod2$prior[2,1])) + 
+  facet_wrap(~name, ncol = 1, scales = "free_y")
+```
+
+**Bad informative prior**
+
+Now, let's see what happens when our prior is well off, suppose we got
+our prior from NBA.
+
+```{r}
+priors <- prior("normal(199, 5)", class = "b", coef = "Intercept") 
+mod3 <- brm(
+  formula = f, 
+  data = president_heights, 
+  family = gaussian(), 
+  prior = priors, 
+  chains = 3, 
+  file = here("models/height_cm~1_bad_informative_prior"), 
+  sample_prior = "yes" 
+  )
+summary(mod3) 
+```
+
+```{r}
+plot(mod3)
+```
+
+```{r}
+post_sam3 <- as_tibble(posterior_samples(mod3))
+post_sam3 %>% 
+  select(matches("Intercept")) %>% 
+  pivot_longer(cols = matches("Intercept")) %>% 
+  ggplot() + 
+  geom_density(aes(value, linetype = name)) + 
+  labs(title = str_c("Bad informative prior: ", mod3$prior[2,1])) +
+  facet_wrap(~name, ncol = 1, scales = "free_y")
+```
+
+#### Inference from different priors
+
+Let's compare, how much influence different priors have on inference.
+
+We test hypothesis that USA presidents are above average tall, with
+contemporary average male height 178 cm.
+
+- Uninformative prior: "let data speak"
+
+```{r}
+plot(hypothesis(mod1, "Intercept > 178"), plot = FALSE)[[1]] + 
+  labs(title = str_c("Uninformative prior: ", mod1$prior[2,1])) + 
+  scale_x_continuous(limits = c(-50, 50))
+```
+
+
+- Weakly informative prior
+
+```{r}
+plot(hypothesis(mod2, "Intercept > 178"), plot = FALSE)[[1]] + 
+  labs(title = str_c("Weakly informative prior: ", mod2$prior[2,1]))
+```
+
+- Bad informative prior
+
+```{r}
+plot(hypothesis(mod3, "Intercept > 178"), plot = FALSE)[[1]] + 
+  labs(title = str_c("Bad informative prior: ", mod3$prior[2,1]))
+```
+
+
+#### Conclusion from using different priors
+
+We can see that in our models, **posterior displays less variation than
+prior**, that's because posterior distribution incorporates information
+from data, we can expect that it's less variable than prior
+distribution.
+
+
+### Sampling from prior only
+
+When setting up model, we can start with drawing samples solely from the priors 
+ignoring the likelihood, which allows to generate samples from the prior
+predictive distribution. 
+
+```{r}
+mod2.1 <- brm(
+  formula = f, 
+  data = president_heights, 
+  family = gaussian(), 
+  prior = prior("normal(178, 10)", class = "b", coef = "Intercept"), 
+  chains = 3, 
+  file = here("models/height_cm~0+Intercept_prior_only"), 
+  sample_prior = "only"
+  )
+summary(mod2.1)
+```
+
+Generating posterior predictive samples from prior-only model. 
+Chosen prior seems to generate reasonable values.
+Black line denotes data, blue lines denote samples from prior-predictive 
+distribution.
+
+```{r}
+set.seed(12) 
+pp_check(mod2.1, nsamples = 10)
+```
+
+We can use plotting functions from *bayesplot* package to generate 
+diagnostic plots for summary statistics of prior-predictive samples.
+
+For this we need our data as *y* and samples drawn from model *yrep*.
+
+```{r}
+y <- president_heights$height_cm 
+yrep <- posterior_predict(mod2.1)
+```
+
+We can check mean and max values in replications:
+**Mean**
+```{r}
+ppc_stat(y, yrep, stat = "mean", binwidth = 5)
+```
+
+**Max**
+```{r}
+ppc_stat(y, yrep, stat = "max", binwidth = 5)
+```
+
+Or look at custom summary statistics, e.g. quantiles
+25% quantile
+```{r}
+q25 <- function(x) quantile(x, 0.25) 
+ppc_stat(y, yrep, stat = "q25", binwidth = 5)
+```
+
+75% quantile
+```{r}
+q75 <- function(x) quantile(x, 0.75)
+ppc_stat(y, yrep, stat = "q75", binwidth = 5)
+```
+
+Plot central quantile posterior interval estimates
+```{r}
+mcmc_areas(mod2.1, pars = "b_Intercept", prob = 0.8, prob_outer = 0.99)
+```
+
+
+### Indexing posterior samples from brms object
+
+Posterior samples are included to **brms** model object.
+Use RStudio Viewer to locate samples and copy their path.
+```{r}
+samples <- mod2[["fit"]]@sim[["samples"]]
+```
+
+We keep only Intercept term for further analysis and get a list of 3 (chains).
+Each list element contains 2000 samples.
+```{r}
+post <- samples %>% 
+  purrr::map("b_Intercept")
+```
+
+
+##### Drop warmup samples before formal analysis
+
+If we look at density plot of all these concatenated Intercept values, 
+we can see that plot looks different -- we have some values below 100.
+Something's fishy.
+```{r}
+post %>% 
+  bind_cols() %>% 
+  gather() %>% 
+  ggplot() +
+  geom_density(aes(value))
+```
+
+When we test hypothesis that US presidents are above average, we can see that 
+support is lower that we saw earlier using `hypothesis()` function.
+```{r}
+post %>% 
+  bind_cols() %>% 
+  pivot_longer(cols = starts_with("...")) %>% 
+  summarise(estimate = mean(((value - 178) > 0)))
+```
+That is because we included also first 1000 warmup samples. 
+Let's drop them and see what happens:
+```{r}
+post %>% 
+  bind_cols() %>% 
+  mutate(iter = row_number()) %>% # label iterations
+  filter(iter > 1000) %>% # 
+  pivot_longer(cols = starts_with("...")) %>% 
+  summarise(
+    Estimate = mean((value - 178)), 
+    `height cm > 178` = mean((value - 178) > 0)
+    )
+```
+
+### Getting draws using *tidybayes*
+
+There are easier and foolproof methods getting posterior draws.
+
+First, let's see what variables we have saved in our model:
+```{r}
+get_variables(mod2)
+```
+
+Extract desired draws from a Bayesian model:
+```{r}
+draws <- mod2 %>%
+  spread_draws(b_Intercept, sigma, prior_b_Intercept, prior_sigma)
+```
+
+
+We can retest our hypothesis about US presidents:
+```{r}
+draws %>%
+  summarise(h = mean((b_Intercept - 178) > 0), N = n())
+```
+
+Calculate summary statistics:
+```{r}
+draws %>% 
+  mean_qi(b_Intercept, prior_b_Intercept)
+```
+
+
+#### Pairs plot
+
+Normal distribution mean and standard deviation are independent, let's see:
+```{r}
+pairs(mod2)
+```
+
+Alternatively:
+```{r}
+draws %>% 
+  ggplot(aes(sigma, b_Intercept)) +
+  geom_point(size = 1/5) +
+  coord_equal()
+```
+
+
+### Individual work 
+
+Run models with different priors, using random sample N = 3 from presidents 
+dataset.
+
+Set seed for reproducibility!
+```{r}
+set.seed(20210920)
+data <- sample_n(president_heights, 3)
+```
+
+
+### Simple regression
+
+Loading WaffleDivorce data from rethinking package.
+```{r}
+(divorce <- read_csv2(here("data/waffledivorce.csv")))
+```
+
+
+```{r}
+divorce %>% 
+  ggplot() +
+  geom_point(aes(Marriage, Divorce)) +
+  coord_fixed()
+```
+
+
+
+```{r}
+f <- Divorce ~ Marriage
+get_prior(formula = f, data = divorce, family = gaussian())
+```
+
+```{r}
+mod4 <- brm(
+  formula = f,
+  data = divorce,
+  family = gaussian(),
+  prior = prior("normal(0, 2)", class = "b"),
+  chains = 3,
+  file = here("models/Divorce~Marriage_prior_only"),
+  sample_prior = "only"
+)
+summary(mod4)
+```
+
+```{r}
+pp_check(mod4)
+```
+```{r}
+y <- divorce$Divorce 
+yrep <- posterior_predict(mod4)
+```
+
+We can check mean and max values in replications:
+**Mean**
+```{r}
+ppc_stat(y, yrep, stat = "mean", binwidth = 1)
+```
+
+
+
+
