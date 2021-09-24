@@ -399,40 +399,6 @@ posterior_summary(mod2.1, probs = c(0.05, 0.95))
 ```
 
 
-
-### Working with posterior draws
-> Liiguta üles, ja too need hypothesis() funktsiooni asjad siia alla!
-
-We can have look at variables saved in our model:
-```{r}
-get_variables(mod2)
-```
-
-Extract desired draws from a Bayesian model:
-```{r}
-samples2 <- as_tibble(posterior_samples(mod2))
-```
-
-Again, visualize posterior distribution of Intercept:
-```{r}
-samples2 %>% 
-  ggplot() +
-  geom_density(aes(b_Intercept - 178)) +
-  geom_vline(xintercept = 0, linetype = "dashed")
-```
-
-
-Calculate summary statistics:
-```{r}
-posterior_summary(samples2)
-```
-
-Retest our hypothesis that US presidents are above average tall:
-```{r}
-samples2 %>%
-  summarise(Effect.size_cm = mean(b_Intercept - 178), Post.Prob = mean((b_Intercept - 178) > 0))
-```
-
 #### Pairs plot
 
 We can see from draws tibble that draws from each iteration have tuple of b_Intercept and sigma. Let's see how they are related in our posterior.
@@ -452,12 +418,12 @@ More elaborate plot with :
 pairs(mod2)
 ```
 
+
 ### Compare parameters from all these three models
 
 ```{r}
 
 ```
-
 
 
 ### Bayesian estimation vs OLS
