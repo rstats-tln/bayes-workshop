@@ -1,6 +1,6 @@
 ---
-title: "Starting with Bayes statistics by estimating mean"
-subtitle: "Simple intercept-only model"
+title: "Starting with Bayes statistics by estimating a mean"
+subtitle: "Simple intercept-only models"
 author: "Taavi Päll and Ülo Maiväli"
 date: "2021-10-02"
 output: github_document
@@ -21,6 +21,7 @@ library(here)
 library(brms)
 library(bayesplot)
 library(tidybayes)
+library(modelr)
 ```
 
 ## Getting data
@@ -102,17 +103,15 @@ people have become taller during last 230 years.
 ```
 
 
-> Here, for the sake of our demonstrations, we define that intercept is also part of all regression coefficients, so that sampling from its prior becomes possible, that's why use ... ~ 0 + Intercept + ... in the formulas.
-
 ```{r}
-f <- height_cm ~ 0 + Intercept # height_cm ~ 1
+f <- height_cm ~ 1
 ```
 
 Let's have a look at the parameters in our model for which we can
-specify priors and default priors.
+specify priors and their default priors.
 
 ```{r}
-get_prior(formula = f, data = data, family = gaussian())
+get_prior(formula = f, data = president_heights, family = gaussian())
 ```
 
 To fit a **brms** model, we need to specify minimally:
@@ -132,7 +131,7 @@ model file (.rds format).
 if (!dir.exists(here("models"))) dir.create(here("models")) # we keep models only locally
 ```
 
-#### Testing different priors for Intercept
+#### Testing priors for Intercept -- uninformative prior
 
 Here we fit intercept-only model using president heights data and
 **uninformative** priors: "let data speak".
@@ -150,8 +149,8 @@ There are several reasons for using non-informative priors, including:
 
 ```{r}
 priors <- c(
-  prior("normal(0, 200)", class = "b", coef = "Intercept"),
-  prior("normal(7.4, 2)", class = "sigma")
+  prior("normal(0, 200)", class = "Intercept"),
+  prior("normal(7.6, 2)", class = "sigma")
   )
 mod1 <- brm(
  formula = f, 
@@ -159,66 +158,91 @@ mod1 <- brm(
  family = gaussian(), 
  prior = priors,
  chains = 3, 
- file = here("models/height_cm~0+Intercept_informative_sigma"),
+ file = here("models/height_cm~1_normal(0, 200)_Intercept_normal(7.6, 2)_sigma"),
  sample_prior = "yes"
  )
 ```
 
-#### Model diagnostics parameters
+#### Model diagnostics
+
+Let's have a look at our fitted model summary:
+
+```{r}
+summary(mod1)
+```
+
 
 **Rhat** function produces R-hat convergence diagnostic, which compares
 the between- and within-chain estimates for model parameters. If chains
 have not mixed well (ie, the between- and within-chain estimates don't
-agree), Rhat is larger than 1. It's recommend to run at least four
+agree), Rhat is larger than 1. 
+
+It's recommend to run at least four
 chains by default and only using the sample if Rhat is less than 1.05.
 
 Both **bulk-ESS** and **tail-ESS** should be at least \~100 per Markov
 Chain in order to be reliable and indicate that estimates of respective
 posterior quantiles are reliable.
 
-```{r}
-summary(mod1)
-```
 
+Diagnostic plot showing posterior distributions of model parameters and 
+markov chains. All chains should be nicely mixed.
 ```{r}
 plot(mod1)
 ```
 
+Model object stores also information about used prior distributions. 
 Let's check our priors from model:
 
 ```{r}
 mod1$prior
 ```
 
+
+More condensed and tidy version of model summary can be generated with 
+`posterior_summary()` function.
 ```{r}
-post_sam1 <- as_tibble(posterior_samples(mod1))
+posterior_summary(mod1)
 ```
 
+#### Posterior samples
+
+Let's extract posterior samples from our model object.
+
+Posterior samples can be extracted from **brms** model objects simply by running 
+`as.data.frame(mod)`, which returns R data.frame (not tibble!), 
+so be careful printing it out into console, and convert it to tibble.
+
+However, we suggest using `posterior_samples()` function from **brms**, 
+as it's more explicit. In both cases the output is identical.
+
 ```{r}
-post_sam1 %>% 
+(samples1 <- as_tibble(posterior_samples(mod1)))
+```
+
+Now we can visualize prior and posterior distributions of Intercept side-by-side:
+```{r}
+samples1 %>% 
  select(matches("Intercept")) %>% 
  pivot_longer(cols = matches("Intercept")) %>% 
  ggplot() +
  geom_density(aes(value, linetype = name)) +
- labs(title = str_c("Uninformative prior: ", mod1$prior[2, 1])) +
+ labs(title = str_c("Uninformative prior: ", mod1$prior[1, 1])) +
  facet_wrap(~name, ncol = 1, scales = "free_y") +
   scale_x_continuous(limits = c(100, 200))
 ```
 
 
-**Weakly informative prior**
+#### Testing priors for Intercept -- informative prior
 
-To specifying weakly informative prior for Intercept, we can use
-information obtained from Wikipedia, that average male height in USA is
-178 cm (measured 2015-2018).
+To specify an informative prior for Intercept, we can use
+information obtained from [Wikipedia](https://en.wikipedia.org/wiki/Average_human_height_by_country), which states that average male height in Non-Hispanic Whites in USA is 178 cm (measured 2015-2018) and standard deviation 7.6 cm.
 
-Weakly informative priors are designed to provide moderate
-regularization and help stabilize computation.
 
 ```{r}
 priors <- c(
-  prior("normal(178, 20)", class = "b", coef = "Intercept"),
-  prior("normal(7.4, 2)", class = "sigma")
+  prior("normal(178, 20)", class = "Intercept"),
+  prior("normal(7.6, 2)", class = "sigma")
   )
 mod2 <- brm(
   formula = f, 
@@ -226,7 +250,7 @@ mod2 <- brm(
   family = gaussian(), 
   prior = priors, 
   chains = 3, 
-  file = here("models/height_cm~0+Intercept_weakly_informative_sigma"), 
+  file = here("models/height_cm~1_normal(178, 20)_Intercept_normal(7.6, 2)_sigma"), 
   sample_prior = "yes"
   )
 summary(mod2)
@@ -237,32 +261,32 @@ plot(mod2)
 ```
 
 ```{r}
-post_sam2 <- as_tibble(posterior_samples(mod2))
-post_sam2 %>% 
+samples2 <- as_tibble(posterior_samples(mod2))
+samples2 %>% 
   select(matches("Intercept")) %>% 
   pivot_longer(cols = matches("Intercept")) %>% 
   ggplot() + 
   geom_density(aes(value, linetype = name)) + 
-  labs(title = str_c("Weakly informative prior: ", mod2$prior[2,1])) + 
+  labs(title = str_c("Good informative prior: ", mod2$prior[1,1])) + 
   facet_wrap(~name, ncol = 1, scales = "free_y")
 ```
 
-**Bad informative prior**
+#### Testing priors for Intercept -- bad informative prior
 
 Now, let's see what happens when our prior is well off, suppose we got
 our prior from NBA.
 
 ```{r}
 priors <- c(
-  prior("normal(199, 1)", class = "b", coef = "Intercept"),
-  prior("normal(7.4, 2)", class = "sigma"))
+  prior("normal(199, 1)", class = "Intercept"),
+  prior("normal(7.6, 2)", class = "sigma"))
 mod3 <- brm(
   formula = f, 
   data = president_heights, 
   family = gaussian(), 
   prior = priors, 
   chains = 3, 
-  file = here("models/height_cm~1_bad_informative_prior_sigma"), 
+  file = here("models/height_cm~1_normal(199, 1)_Intercept_normal(7.6, 2)_sigma"), 
   sample_prior = "yes" 
   )
 summary(mod3) 
@@ -273,70 +297,48 @@ plot(mod3)
 ```
 
 ```{r}
-post_sam3 <- as_tibble(posterior_samples(mod3))
-post_sam3 %>% 
+samples3 <- as_tibble(posterior_samples(mod3))
+samples3 %>% 
   select(matches("Intercept")) %>% 
   pivot_longer(cols = matches("Intercept")) %>% 
   ggplot() + 
   geom_density(aes(value, linetype = name)) + 
-  labs(title = str_c("Bad informative prior: ", mod3$prior[2,1])) +
+  labs(title = str_c("Bad informative prior: ", mod3$prior[1,1])) +
   facet_wrap(~name, ncol = 1, scales = "free_y")
 ```
 
-Compare last result with good/weakly informative priors (compare Intercept of all these models).
+Compare last result with good informative priors (compare Intercept of all these models).
 
-#### Inference from different priors
-
-Let's compare, how much influence different priors have on inference.
-
-We test hypothesis that USA presidents are above average tall, with
-contemporary average male height 178 cm.
-
-- Uninformative prior: "let data speak"
-
-```{r}
-plot(hypothesis(mod1, "Intercept > 178"), plot = FALSE)[[1]] + 
-  labs(title = str_c("Uninformative prior: ", mod1$prior[2,1])) + 
-  scale_x_continuous(limits = c(-50, 50))
-```
-
-
-- Weakly informative prior
-
-```{r}
-plot(hypothesis(mod2, "Intercept > 178"), plot = FALSE)[[1]] + 
-  labs(title = str_c("Weakly informative prior: ", mod2$prior[2,1]))
-```
-
-- Bad informative prior
-
-```{r}
-plot(hypothesis(mod3, "Intercept > 178"), plot = FALSE)[[1]] + 
-  labs(title = str_c("Bad informative prior: ", mod3$prior[2,1]))
-```
 
 
 #### Conclusion from using different priors
 
-We can see that in our models, **posterior displays less variation than
+- Strong priors can have strong effect on posterior, specially when there is few data. 
+This is not a bug but a feature. 
+- We can see that in our models, **posterior displays less variation than
 prior**, that's because posterior distribution incorporates information
 from data, we can expect that it's less variable than prior
-distribution.
+distribution.    
 
 ### Sampling from prior only
 
 When setting up model, we can start with drawing samples solely from the priors 
 ignoring the likelihood, which allows to generate samples from the prior
-predictive distribution. 
+predictive distribution and get an idea if chosen model specification is 
+reasonable and provides posteriors on expected scale.
 
 ```{r}
+priors <- c(
+  prior("normal(178, 20)", class = "Intercept"),
+  prior("normal(7.4, 2)", class = "sigma")
+  )
 mod2.1 <- brm(
   formula = f, 
   data = president_heights, 
   family = gaussian(), 
-  prior = prior("normal(178, 20)", class = "b", coef = "Intercept"), 
+  prior = priors, 
   chains = 3, 
-  file = here("models/height_cm~0+Intercept_prior_only"), 
+  file = here("models/height_cm~1_prior_only"), 
   sample_prior = "only"
   )
 summary(mod2.1)
@@ -398,30 +400,22 @@ posterior_summary(mod2.1, probs = c(0.05, 0.95))
 
 
 
+### Working with posterior draws
+> Liiguta üles, ja too need hypothesis() funktsiooni asjad siia alla!
 
-### Getting draws
-
-There are easier and foolproof methods getting posterior draws.
-
-First, let's see what variables we have saved in our model:
+We can have look at variables saved in our model:
 ```{r}
 get_variables(mod2)
 ```
 
 Extract desired draws from a Bayesian model:
 ```{r}
-draws <- as_tibble(as.data.frame(mod2))
+samples2 <- as_tibble(posterior_samples(mod2))
 ```
 
-
-We can retest our hypothesis about US presidents:
+Again, visualize posterior distribution of Intercept:
 ```{r}
-draws %>%
-  summarise(h = mean((b_Intercept - 178) > 0), N = n())
-```
-
-```{r}
-draws %>% 
+samples2 %>% 
   ggplot() +
   geom_density(aes(b_Intercept - 178)) +
   geom_vline(xintercept = 0, linetype = "dashed")
@@ -430,10 +424,14 @@ draws %>%
 
 Calculate summary statistics:
 ```{r}
-draws %>% 
-  posterior_summary()
+posterior_summary(samples2)
 ```
 
+Retest our hypothesis that US presidents are above average tall:
+```{r}
+samples2 %>%
+  summarise(Effect.size_cm = mean(b_Intercept - 178), Post.Prob = mean((b_Intercept - 178) > 0))
+```
 
 #### Pairs plot
 
@@ -442,7 +440,7 @@ We can see from draws tibble that draws from each iteration have tuple of b_Inte
 Samples from the posterior distribution for the heights data. 
 The density of points is highest in the center, reflecting the most plausible combinations of \mu and \sigma.
 ```{r}
-draws %>% 
+samples2 %>% 
   ggplot(aes(sigma, b_Intercept)) +
   geom_point(alpha = 1/5) +
   coord_equal()
@@ -454,10 +452,111 @@ More elaborate plot with :
 pairs(mod2)
 ```
 
+### Compare parameters from all these three models
+
+```{r}
+
+```
+
+
+
+### Bayesian estimation vs OLS
+
+panna selle koha peale kustkohast me mudelist andmeid genereerime
+
+Linear regression (OLS) predicts a maximum likelihood estimate of the target variable, Bayesian linear regression predicts a whole distribution over the target variable, offering a natural measure of prediction uncertainty.
+
+Let's visualize this difference:
+```{r}
+set.seed(1)
+samples2 <- as_tibble(posterior_samples(mod2))
+a <- rnorm(1000, samples2$b_Intercept, samples2$sigma)
+b <- rnorm(1000, median(samples2$b_Intercept), median(samples2$sigma))
+sd(a)
+sd(b)
+```
+
+- In **a** variation comes from 2 sources:    
+1. the estimated SD of the normal model and     
+2. the uncertainty of this estimation captured in the posterior.   
+- In **b** variation comes from the (1) only. **b** corresponds to OLS estimation.   
+
+```{r}
+tibble(a = a, b = b) %>% 
+  gather() %>% 
+  ggplot() +
+  geom_density(aes(value, color = key)) +
+  scale_color_discrete(labels = c(str_c('a (SD=', signif(sd(a), 3), ')'), str_c('b (SD=', signif(sd(b), 3), ')'))) +
+  theme(legend.title = element_blank(), legend.position = "bottom")
+```
+
+
+#### Inference from different priors -- are USA presidents taller than average
+
+Let's compare, how much influence different priors have on inference.
+
+We test hypothesis that USA presidents are above average tall, with
+contemporary average male height 178 cm.
+
+- Uninformative prior: "let data speak"
+
+```{r}
+president_heights %>% 
+  add_epred_draws(mod1) %>% 
+  ungroup() %>% 
+  mutate(es = .epred - 178) %>% 
+  ggplot() +
+  geom_density(aes(es)) +
+  geom_vline(xintercept = c(0, 3.16, 9.29), linetype = c(1, 2, 2), color = c("red", "black", "black"))
+```
+
+
+```{r}
+president_heights %>% 
+  add_epred_draws(mod1) %>% 
+  ungroup() %>% 
+  mean_qi(.epred - 178, .width = 0.9)
+```
+
+
+```{r}
+samples1 %>% 
+  mean_qi(b_Intercept - 178, .width = 0.9)
+```
+
+
+```{r}
+plot(hypothesis(mod1, "Intercept > 178"), plot = FALSE)[[1]] + 
+  labs(title = str_c("Uninformative prior: ", mod1$prior[1,1])) + 
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  scale_x_continuous(limits = c(-50, 50))
+```
+
+
+- Informative prior
+
+```{r}
+plot(hypothesis(mod2, "Intercept > 178"), plot = FALSE)[[1]] + 
+  labs(title = str_c("Informative prior: ", mod2$prior[1,1])) +
+  geom_vline(xintercept = 0, linetype = "dashed")
+```
+
+- Bad informative prior
+
+```{r}
+plot(hypothesis(mod3, "Intercept > 178"), plot = FALSE)[[1]] + 
+  labs(title = str_c("Bad informative prior: ", mod3$prior[1,1])) +
+  geom_vline(xintercept = 0, linetype = "dashed")
+```
+
+
+
 ### Individual work 
 
-Run models with different priors, using random sample N = 3 from presidents 
+Run models with different priors, using random sample N = 1?/2?/3/5 from presidents 
 dataset.
+
+Strong informative prior for sigma *normal(7.4, 1)*
 
 Set seed for reproducibility!
 ```{r}
@@ -466,142 +565,5 @@ data <- sample_n(president_heights, 3)
 ```
 
 
-### Simple regression -- adding a predictor
-
-We will use WaffleDivorce data for the individual States of the USA, 
-describing number of Waffle House diners and various marriage and 
-demographic facts.
-
-Loading WaffleDivorce data from rethinking package.
-```{r}
-(divorce <- read_csv2(here("data/waffledivorce.csv")))
-```
-
-Where **Divorce** is 2009 divorce rate per 1000 adults and **Marriage** is 2009 marriage rate per 1000 adults.
-
-> We want to see how Marriage rate predicts Divorce rate.
-
-```{r}
-divorce %>% 
-  ggplot() +
-  geom_point(aes(x = Marriage, y = Divorce)) +
-  coord_fixed()
-```
-
-Let's calculate some summary stats to plug into our priors:
-```{r}
-divorce %>% 
-  summarise_at(
-    c("Marriage", "Divorce"), 
-    list(median = median, sd = sd)
-    )
-```
-
-
-
-#### Model
-
-
-
-$$h_i \sim \text{Normal}(\mu_i, \sigma)\quad\text{[likelihood]}$$
-$$\mu_i = \alpha + \beta x_i\quad\text{[linear model]}$$
-$$\alpha \sim \text{Student_t}(3, 97.5, 18.5)\quad[\alpha\ \text{prior}]$$
-$$\beta \sim \text{Normal}(0, 5)\quad[\beta\ \text{prior}]$$
-$$\sigma \sim \text{Student_t}(3, 0, 18.5)\quad[\sigma\ \text{prior}]$$
-
-- Likelihood denotes that *i* on $\mu_i$ indicates that the mean depends upon the row.   
-- The mean \mu is no longer a parameter to be estimated, $\mu_i$ is constructed from other parameters, $\alpha$ and $\beta$, and the predictor variable *x*. There is also deterministic relationship between $\mu$ and $\alpha$ and $\beta$, denoted by "=".   
-
-- Then there are weakly informative priors for alpha, sigma and beta. 
-
-
-We can see that by default, **brms** provides **flat** priors for beta coefficients,
-so minimally we should provide these.
-```{r}
-f <- Divorce ~ Marriage
-get_prior(formula = f, data = divorce, family = gaussian())
-```
-
-First, we can test if our prior choice is reasonable by sampling only from prior:
-```{r}
-mod4.0 <- brm(
-  formula = f,
-  data = divorce,
-  family = gaussian(),
-  prior = prior("normal(0, 2)", class = "b"),
-  chains = 3,
-  file = here("models/Divorce~Marriage_prior_only"),
-  sample_prior = "only"
-)
-summary(mod4.0)
-```
-
-Run pp_check multiple times, to get good impression of draws:
-```{r}
-pp_check(mod4)
-```
-
-Let's have a look how well our prior-only model recovers different distribution parameters
-```{r}
-y <- divorce$Divorce 
-yrep <- posterior_predict(mod4.0)
-```
-
-We can check mean and max values in replications:
-```{r}
-ppc_stat(y, yrep, stat = "mean", binwidth = 1)
-```
-
-```{r}
-ppc_stat(y, yrep, stat = "sd", binwidth = 1)
-```
-
-```{r}
-ppc_stat(y, yrep, stat = "max", binwidth = 1)
-```
-
-
-Lets test more priors:
-
-```{r}
-priors <- c(
-  prior("normal(0, 2)", class = "b"),
-  prior("normal(100, 10)", class = "Intercept"),
-  prior("normal(0, 10)", class = "sigma")
-  )
-mod4.1 <- brm(
-  formula = f,
-  data = divorce,
-  family = gaussian(),
-  prior = priors,
-  chains = 3,
-  file = here("models/Divorce~Marriage_prior_only_normal"),
-  sample_prior = "only"
-)
-summary(mod4.1)
-```
-
-
-```{r}
-yrep <- posterior_predict(mod4.1)
-```
-
-
-```{r}
-ppc_stat(y, yrep, stat = "mean", binwidth = 1)
-```
-
-
-```{r}
-ppc_stat(y, yrep, stat = "sd", binwidth = 1)
-```
-
-
-```{r}
-ppc_stat(y, yrep, stat = "max", binwidth = 1)
-```
-
-
-So are we going to use default priors or go on with normal priors?
-
+TEST IT!!!
 
