@@ -1,0 +1,280 @@
+---
+title: "Simple regression -- adding a predictor"
+author: "Taavi Päll and Ülo Maiväli"
+date: "2021-10-02"
+output: github_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Loading some required libraries
+
+```{r}
+library(tidyverse)
+library(here)
+library(brms)
+library(bayesplot)
+library(tidybayes)
+library(modelr)
+```
+
+### Simple regression -- adding a predictor
+
+We will use **WaffleDivorce** data for the individual States of the USA, 
+describing number of Waffle House diners and various marriage and 
+demographic facts.
+
+Loading WaffleDivorce data from rethinking package.
+
+```{r}
+(waffledivorce <- read_csv2(here("data/waffledivorce.csv")))
+```
+
+Where **Divorce** is 2009 divorce rate per 1000 adults and **Marriage** is 2009 marriage rate per 1000 adults.
+
+> We want to see how Marriage rate predicts Divorce rate. 
+
+In order to get divorced you need to get married first, but there is no reason 
+to believe that high marriage rate causes high divorce rate.
+
+There are at least two possible scenarios with high marriage rate, first, 
+high rate means that marriage is highly valued in a society or, second, 
+marriage is inflated.
+
+First scenario may imply that marriage rate is negatively associated with 
+divorce rate. Second scenario is compatible with positive association.
+
+```{r}
+waffledivorce %>% 
+  ggplot(aes(x = Marriage, y = Divorce)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  coord_fixed() +
+  labs(x = "Marriage rate", y = "Divorce rate")
+```
+
+Let's calculate summary stats from non-scaled data:
+```{r}
+waffledivorce %>% 
+  mutate_at("MedianAgeMarriage", ~.x / 10) %>% 
+  summarise_at(
+    c("Marriage", "Divorce", "MedianAgeMarriage"), 
+    list(median = median, sd = sd)
+    )
+```
+
+For modeling, we want to bring marriage and divorce rate into relative scale, 
+given that negative divorce rate does not make sense when marriage rate equals 
+zero.
+
+We are using `standardize` function from **rethinking** package as it returns vector 
+in contrast to `scale` function. `standardize` is a wrapper around `scale` 
+anyway and keeping matrices in our tibbles causes trouble for some downstream functions.
+
+```{r}
+divorce <- waffledivorce %>% 
+  select(Loc, Marriage, Divorce, MedianAgeMarriage) %>% 
+  mutate_at(c("Marriage", "Divorce", "MedianAgeMarriage"), rethinking::standardize)
+```
+
+#### Model
+
+Here we specify our model by using priors from non-scaled original data.
+
+$$D_i \sim \text{Normal}(\mu_i, \sigma)\quad\text{[likelihood]}$$
+$$\mu_i = \alpha + \beta M_i\quad\text{[linear model]}$$
+$$\alpha \sim \text{Normal}(97.5, 18.5)\quad[\alpha\ \text{prior}]$$
+$$\beta \sim \text{Normal}(0, 2.5)\quad[\beta\ \text{prior}]$$
+$$\sigma \sim \text{Normal}(0, 18.5)\quad[\sigma\ \text{prior}]$$
+
+- Likelihood denotes that *i* on $\mu_i$ indicates that the mean depends upon the row. *D* denotes divorce rate.      
+- The mean \mu is no longer a parameter to be estimated, $\mu_i$ is constructed from other parameters, $\alpha$ and $\beta$, and the predictor variable *M*, marriage rate. There is also deterministic relationship between $\mu$ and $\alpha$ and $\beta$, denoted by "=".   
+- Then there are weakly informative priors for alpha, sigma and beta.    
+
+
+We can see that by default, **brms** provides **flat** priors for beta coefficients,
+so minimally we should provide these.
+```{r}
+f <- Divorce ~ Marriage
+get_prior(formula = f, data = divorce, family = gaussian())
+```
+
+First, we can test if our prior choice is reasonable by sampling only from prior:
+
+Exercise, please choose your (better than default) priors for Intercept, beta and sigma parameters 
+using **scaled divorce** data and fit the model.
+
+```{r}
+priors <- c(
+  prior("normal(0, 2.5)", class = "Intercept"),
+  prior("normal(0, 1)", class = "b"),
+  prior("normal(0, 2.5)", class = "sigma")
+)
+mod4.0 <- brm(
+  formula = f,
+  data = divorce,
+  family = gaussian(),
+  prior = priors,
+  chains = 3,
+  file = here("models/Divorce~Marriage_prior_only"),
+  sample_prior = "only"
+)
+```
+
+
+```{r}
+summary(mod4.0)
+```
+
+
+Run pp_check multiple times, to get impression of prior-only performance:
+```{r}
+pp_check(mod4.0)
+```
+
+Let's have a look how well our prior-only model recovers different distribution parameters
+```{r}
+y <- as.numeric(divorce$Divorce) 
+yrep <- posterior_predict(mod4.0)
+```
+
+We can check mean and max values in replications:
+```{r}
+ppc_stat(y, yrep, stat = "mean", binwidth = 1)
+```
+
+```{r}
+ppc_stat(y, yrep, stat = "sd", binwidth = 1)
+```
+
+```{r}
+ppc_stat(y, yrep, stat = "max", binwidth = 1)
+```
+
+
+Let's visualize (keeping only small amount of samples to avoid over-plotting):
+```{r}
+samples4.0 <- as_tibble(posterior_samples(mod4.0)) %>% 
+  sample_n(50)
+```
+
+Here we can see a sample of plausible regression lines, based on our prior-only model:
+```{r}
+ggplot() +
+  geom_point(data = divorce, aes(Marriage, Divorce)) +
+  geom_abline(data = samples4.0, aes(slope = b_Marriage, intercept = b_Intercept), size = 0.3, alpha = 0.3) +
+  labs(x = "Marriage rate", y = "Divorce rate") +
+  theme_classic()
+```
+
+
+
+```{r}
+priors <- c(
+  prior("normal(0, 0.1)", class = "Intercept"),
+  prior("normal(0, 0.05)", class = "b"),
+  prior("normal(0, 0.1)", class = "sigma")
+)
+mod4.2 <- brm(
+  formula = f,
+  data = divorce,
+  family = gaussian(),
+  prior = priors,
+  chains = 3,
+  file = here("models/Divorce~Marriage"),
+  sample_prior = "yes"
+)
+```
+
+```{r}
+summary(mod4.2)
+```
+
+Model summary suggest that as marriage rate increases by 1, 
+
+
+```{r}
+plot(mod4.2)
+```
+
+
+
+```{r}
+posterior_summary(mod4.2)
+```
+
+
+Let's visualize (keeping only small amount of samples to avoid over-plotting):
+```{r}
+samples4.2 <- as_tibble(posterior_samples(mod4.2)) %>% 
+  sample_n(50)
+```
+
+After using data to fit our model, we can see that region occupided by 
+plausible regression lines is much more constrained:
+```{r}
+ggplot() +
+  geom_point(data = divorce, aes(Marriage, Divorce)) +
+  geom_abline(data = samples4.2, aes(slope = b_Marriage, intercept = b_Intercept), size = 0.3, alpha = 0.3) +
+  labs(x = "Marriage rate", y = "Divorce rate") +
+  theme_classic()
+```
+
+
+### Residuals
+
+Let's add residuals to our data:
+```{r}
+(resid_samples <- divorce %>% 
+  select(Marriage, Divorce) %>% 
+  add_residual_draws(mod4.2))
+```
+
+McElreath Fig. 5.4
+```{r}
+ggplot(resid_samples) +
+  geom_density(aes(.residual))
+```
+
+
+#### epred/fitted vs predicted
+
+
+`posterior_epred()` computes posterior samples of the expected value/**mean** of the posterior predictive distribution. 
+
+Can be performed for the data used to fit the model (posterior predictive checks) or for new data. 
+
+By definition, these predictions have smaller variance than the posterior predictions performed by the `posterior_predict` method. 
+
+This is because only the uncertainty in the mean is incorporated in the samples computed by `posterior_epred` while any residual error is ignored. 
+
+Estimated means of both methods averaged across samples should be very similar.
+
+Let's compare data (dashed line) with epred (blue line) and predicted values (red line):
+
+```{r}
+epred_samples <- divorce %>%
+  select(Marriage, Divorce) %>% 
+  add_epred_draws(mod4.2)
+pred_samples <- divorce %>%
+  select(Marriage, Divorce) %>% 
+  add_predicted_draws(mod4.2)
+epred_samples %>% 
+  left_join(pred_samples) %>% 
+  ggplot() +
+  geom_density(aes(Divorce), linetype = "dashed") +
+  geom_density(aes(.epred), color = "blue") +
+  geom_density(aes(.prediction), color = "red")
+```
+
+
+#### Conditional effects (mean + data point)
+
+
+
+
