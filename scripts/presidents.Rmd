@@ -209,18 +209,20 @@ posterior_summary(mod1)
 
 Let's extract posterior samples from our model object.
 
-Posterior samples can be extracted from **brms** model objects simply by running 
+Posterior samples saved in **brms** model objects can be extracted by running 
 `as.data.frame(mod)`, which returns R data.frame (not tibble!), 
 so be careful printing it out into console, and convert it to tibble.
 
 However, we suggest using `posterior_samples()` function from **brms**, 
-as it's more explicit. In both cases the output is identical.
+as it does same thing but is more explicit. 
+In both cases the output is identical.   
 
 ```{r}
 (samples1 <- as_tibble(posterior_samples(mod1)))
 ```
 
 Now we can visualize prior and posterior distributions of Intercept side-by-side:
+
 ```{r}
 samples1 %>% 
  select(matches("Intercept")) %>% 
@@ -236,7 +238,8 @@ samples1 %>%
 #### Testing priors for Intercept -- informative prior
 
 To specify an informative prior for Intercept, we can use
-information obtained from [Wikipedia](https://en.wikipedia.org/wiki/Average_human_height_by_country), which states that average male height in Non-Hispanic Whites in USA is 178 cm (measured 2015-2018) and standard deviation 7.6 cm.
+information obtained from [Wikipedia](https://en.wikipedia.org/wiki/Average_human_height_by_country), which states that average male height in Non-Hispanic Whites in USA is 178 cm (measured 2015-2018) and additionally we have found from the internet that standard deviation of male 
+height is 7.6 cm.
 
 
 ```{r}
@@ -310,15 +313,32 @@ samples3 %>%
 Compare last result with good informative priors (compare Intercept of all these models).
 
 
+### Comparing parameters from all these three models
+
+We have samples from three models: samples1..3.
+Let's compare b_Intercept and sigma:
+
+```{r}
+list(`Non-inform.` = samples1, `Inform.` = samples2, `Bad inform.` = samples3) %>% 
+  bind_rows(.id = "model") %>% 
+  select(model, b_Intercept, sigma) %>% 
+  pivot_longer(cols = c("b_Intercept", "sigma")) %>% 
+  ggplot(aes(fct_reorder(model, desc(model)), value)) +
+  stat_pointinterval(position = "dodge", .width = c(0.67, 0.95)) +
+  facet_wrap(~name, scales = "free") +
+  labs(x = "Prior type")
+```
+
 
 #### Conclusion from using different priors
 
 - Strong priors can have strong effect on posterior, specially when there is few data. 
 This is not a bug but a feature. 
-- We can see that in our models, **posterior displays less variation than
+- Additionally, we can see from our models that **posterior displays less variation than
 prior**, that's because posterior distribution incorporates information
-from data, we can expect that it's less variable than prior
+from data, therefore we can expect that it's less variable than prior
 distribution.    
+
 
 ### Sampling from prior only
 
@@ -344,15 +364,19 @@ mod2.1 <- brm(
 summary(mod2.1)
 ```
 
-Generating posterior predictive samples from prior-only model. 
-Chosen prior seems to generate reasonable values.
-Black line denotes data, blue lines denote samples from prior-predictive 
-distribution.
+Generating posterior predictive samples/plot from prior-only model. 
 
 ```{r}
 set.seed(12) 
 pp_check(mod2.1, nsamples = 10)
 ```
+
+Chosen prior seems to generate reasonable values.
+Black line denotes data, blue lines denote samples from prior-predictive 
+distribution.
+
+Run `pp_check()` multiple times to get an idea where samples generated from 
+prior land.
 
 We can use plotting functions from *bayesplot* package to generate 
 diagnostic plots for summary statistics of prior-predictive samples.
@@ -393,7 +417,7 @@ Plot central quantile posterior interval estimates
 mcmc_areas(mod2.1, pars = "b_Intercept", prob = 0.5, prob_outer = 0.9)
 ```
 
-
+We can also run posterior summary function to check e.g. 90% quantile intervals:
 ```{r}
 posterior_summary(mod2.1, probs = c(0.05, 0.95))
 ```
@@ -401,9 +425,9 @@ posterior_summary(mod2.1, probs = c(0.05, 0.95))
 
 #### Pairs plot
 
-We can see from draws tibble that draws from each iteration have tuple of b_Intercept and sigma. Let's see how they are related in our posterior.
+We can see from posterior samples that each draw/row contains a tuple of estimated parameters e.g. b_Intercept and sigma. Let's see how they are related in our posterior.
 
-Samples from the posterior distribution for the heights data. 
+We will use posterior samples from our informative prior model. 
 The density of points is highest in the center, reflecting the most plausible combinations of \mu and \sigma.
 ```{r}
 samples2 %>% 
@@ -419,16 +443,7 @@ pairs(mod2)
 ```
 
 
-### Compare parameters from all these three models
-
-```{r}
-
-```
-
-
 ### Bayesian estimation vs OLS
-
-panna selle koha peale kustkohast me mudelist andmeid genereerime
 
 Linear regression (OLS) predicts a maximum likelihood estimate of the target variable, Bayesian linear regression predicts a whole distribution over the target variable, offering a natural measure of prediction uncertainty.
 
@@ -436,8 +451,8 @@ Let's visualize this difference:
 ```{r}
 set.seed(1)
 samples2 <- as_tibble(posterior_samples(mod2))
-a <- rnorm(1000, samples2$b_Intercept, samples2$sigma)
-b <- rnorm(1000, median(samples2$b_Intercept), median(samples2$sigma))
+a <- rnorm(3000, samples2$b_Intercept, samples2$sigma)
+b <- rnorm(3000, median(samples2$b_Intercept), median(samples2$sigma))
 sd(a)
 sd(b)
 ```
@@ -461,38 +476,72 @@ tibble(a = a, b = b) %>%
 
 Let's compare, how much influence different priors have on inference.
 
+But first, what's the difference between linpred, epred and predicted draws?
+Jonah Gabry explains difference on <https://discourse.mc-stan.org> as follows:
+
+Suppose we have a negative binomial regression with a log link:
+
+$$\eta_i = \alpha + \beta x_i$$
+$$\lambda_i = exp(\eta_i)$$
+$$y \sim NegBinom(\lambda_i, \phi)$$
+
+- `posterior_linpred()` gives you posterior draws of $\eta$.
+- `posterior_linpred(transform = TRUE)`, or equivalently `posterior_epred()`, gives you posterior draws of $\lambda$, that is, it does the inverse link transformation for you.
+- `posterior_predict()` gives you draws from $NegBinom(\lambda, \phi)$, that is it uses a NegBinom random number generator and includes the dispersion information in $\phi$.
+
+
 We test hypothesis that USA presidents are above average tall, with
 contemporary average male height 178 cm.
 
 - Uninformative prior: "let data speak"
 
+First, we can calculate effect size manually, and we want to use 
+`posterior_epred`, as we want to test or hypothesis on same scale as our 
+original values (we used identity link anyway):
+
 ```{r}
-president_heights %>% 
+post1 <- president_heights %>% 
   add_epred_draws(mod1) %>% 
-  ungroup() %>% 
+  ungroup()
+```
+
+
+Quantile intervals:
+```{r}
+post1 %>% 
+  mean_qi(.epred - 178, .width = 0.9)
+```
+
+Plot quantile intervals:
+```{r}
+post1 %>% 
   mutate(es = .epred - 178) %>% 
   ggplot() +
   geom_density(aes(es)) +
   geom_vline(xintercept = c(0, 3.16, 9.29), linetype = c(1, 2, 2), color = c("red", "black", "black"))
 ```
 
-
+How much of our effect size is above 0:
 ```{r}
-president_heights %>% 
-  add_epred_draws(mod1) %>% 
-  ungroup() %>% 
-  mean_qi(.epred - 178, .width = 0.9)
+post1 %>% 
+  summarise(`P(height > 178)` = mean((.epred - 178) > 0))
+```
+
+There's function `hypothesis` that allows non-linear hypothesis testing for all 
+model parameters.
+```{r}
+?hypothesis
 ```
 
 
 ```{r}
-samples1 %>% 
-  mean_qi(b_Intercept - 178, .width = 0.9)
+(h1 <- hypothesis(mod1, "Intercept > 178"))
 ```
 
 
+
 ```{r}
-plot(hypothesis(mod1, "Intercept > 178"), plot = FALSE)[[1]] + 
+plot(h1, plot = FALSE)[[1]] + 
   labs(title = str_c("Uninformative prior: ", mod1$prior[1,1])) + 
   geom_vline(xintercept = 0, linetype = "dashed") +
   scale_x_continuous(limits = c(-50, 50))
@@ -502,7 +551,11 @@ plot(hypothesis(mod1, "Intercept > 178"), plot = FALSE)[[1]] +
 - Informative prior
 
 ```{r}
-plot(hypothesis(mod2, "Intercept > 178"), plot = FALSE)[[1]] + 
+(h2 <- hypothesis(mod2, "Intercept > 178"))
+```
+
+```{r}
+plot(h2, plot = FALSE)[[1]] + 
   labs(title = str_c("Informative prior: ", mod2$prior[1,1])) +
   geom_vline(xintercept = 0, linetype = "dashed")
 ```
@@ -510,7 +563,12 @@ plot(hypothesis(mod2, "Intercept > 178"), plot = FALSE)[[1]] +
 - Bad informative prior
 
 ```{r}
-plot(hypothesis(mod3, "Intercept > 178"), plot = FALSE)[[1]] + 
+(h3 <- hypothesis(mod3, "Intercept > 178"))
+```
+
+
+```{r}
+plot(h3, plot = FALSE)[[1]] + 
   labs(title = str_c("Bad informative prior: ", mod3$prior[1,1])) +
   geom_vline(xintercept = 0, linetype = "dashed")
 ```
@@ -520,9 +578,9 @@ plot(hypothesis(mod3, "Intercept > 178"), plot = FALSE)[[1]] +
 ### Individual work 
 
 Run models with different priors, using random sample N = 1?/2?/3/5 from presidents 
-dataset.
+data.
 
-Strong informative prior for sigma *normal(7.4, 1)*
+Use, strong informative prior for sigma *normal(7.4, 1)*
 
 Set seed for reproducibility!
 ```{r}
