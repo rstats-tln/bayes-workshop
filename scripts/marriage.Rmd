@@ -100,8 +100,7 @@ $$\sigma \sim \text{Normal}(0, 18.5)\quad[\sigma\ \text{prior}]$$
 We can see that by default, **brms** provides **flat** priors for beta coefficients,
 so minimally we should provide these.
 ```{r}
-f <- Divorce ~ Marriage
-get_prior(formula = f, data = divorce, family = gaussian())
+get_prior(formula = Divorce ~ Marriage, data = divorce, family = gaussian())
 ```
 
 First, we can test if our prior choice is reasonable by sampling only from prior:
@@ -111,12 +110,12 @@ using **scaled divorce** data and fit the model.
 
 ```{r}
 priors <- c(
-  prior("normal(0, 2.5)", class = "Intercept"),
-  prior("normal(0, 1)", class = "b"),
-  prior("normal(0, 2.5)", class = "sigma")
+  prior("normal(0, 0.2)", class = "Intercept"),
+  prior("normal(0, 0.5)", class = "b"),
+  prior("normal(0, 1)", class = "sigma")
 )
 mod4.0 <- brm(
-  formula = f,
+  formula = Divorce ~ Marriage,
   data = divorce,
   family = gaussian(),
   prior = priors,
@@ -172,16 +171,16 @@ ggplot() +
   theme_classic()
 ```
 
-
+Next, let's sample fit model with data.
 
 ```{r}
 priors <- c(
   prior("normal(0, 0.2)", class = "Intercept"),
-  prior("normal(0, 0.05)", class = "b"),
+  prior("normal(0, 0.5)", class = "b"),
   prior("normal(0, 1)", class = "sigma")
 )
 mod4.2 <- brm(
-  formula = f,
+  formula = Divorce ~ Marriage,
   data = divorce,
   family = gaussian(),
   prior = priors,
@@ -277,14 +276,6 @@ What happens if you use less stringent priors?
 We know that probability of getting married and divorced grows with age. So let's 
 add age at marriage to our model.
 
-```{r}
-divorce %>% 
-  ggplot(aes(MedianAgeMarriage, Divorce)) +
-  geom_point() +
-  geom_smooth(method = "lm")
-```
-
-
 #### Model
 
 To accommodate more variables into our model, we just expand the linear model by adding more coefficients.
@@ -306,8 +297,7 @@ marriage rate, and predictor variable *A*, median age at marriage, respectively.
 
 Here are our default priors:
 ```{r}
-f <- Divorce ~ Marriage + MedianAgeMarriage
-get_prior(formula = f, data = divorce, family = gaussian())
+get_prior(formula = Divorce ~ Marriage + MedianAgeMarriage, data = divorce, family = gaussian())
 ```
 
 We can see that divorce rate decreases with increasing age at marriage.
@@ -325,8 +315,8 @@ priors <- c(
   prior("normal(0, 0.5)", class = "b"),
   prior("normal(0, 1)", class = "sigma")
 )
-mod5.0 <- brm(
-  formula = f,
+mod4.3 <- brm(
+  formula = Divorce ~ Marriage + MedianAgeMarriage,
   data = divorce,
   family = gaussian(),
   prior = priors,
@@ -338,18 +328,56 @@ mod5.0 <- brm(
 
 
 ```{r}
-summary(mod5.0)
+summary(mod4.3)
 ```
 
 ```{r}
-plot(mod5.0)
+plot(mod4.3)
 ```
 
 
 
 ```{r}
-pp_check(mod5.0)
+pp_check(mod4.3)
 ```
 
 
+```{r}
+mod4.4 <- brm(
+  formula = Divorce ~ MedianAgeMarriage,
+  data = divorce,
+  family = gaussian(),
+  prior = priors,
+  chains = 3,
+  file = here("models/Divorce~MedianAgeMarriage"),
+  sample_prior = "yes"
+)
+```
+
+```{r}
+summary(mod4.4)
+```
+
+Let's compare posteriors of parameters from all these models, we can drop intercept as it's expected to be 0.
+
+```{r}
+samples4.2 <- posterior_samples(mod4.2)
+samples4.3 <- posterior_samples(mod4.3)
+samples4.4 <- posterior_samples(mod4.4)
+(samples <- list(samples4.2 = samples4.2, samples4.3 = samples4.3, samples4.4 = samples4.4) %>% 
+  bind_rows(.id = "id") %>% 
+  select(id, b_Marriage, b_MedianAgeMarriage) %>% 
+  pivot_longer(cols = starts_with("b_")) %>% 
+  drop_na())
+```
+
+```{r}
+samples %>% 
+  ggplot() +
+  stat_pointinterval(aes(id, value)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  facet_wrap(~name) +
+  coord_flip() +
+  theme(axis.title.y = element_blank())
+```
 
