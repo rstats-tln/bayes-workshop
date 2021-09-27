@@ -257,24 +257,38 @@ We want to test one-sided hypothesis whether b_Marriage coefficient is bigger th
 get_variables(mod4.2)
 ```
 
-
+We can see that marriage rate predicts divorce rate with very high posterior probability.
 ```{r}
 (h4.2 <- hypothesis(mod4.2, "Marriage > 0"))
 ```
-
-This model suggest that marriage rate does not predict divorce rate in US.
+Plot shows that most of the posterior distribution of Marriage coefficient lies on positive side.
 ```{r}
-plot(h4.2)
+plot(h4.2, plot = FALSE)[[1]] +
+  geom_vline(xintercept = 0, linetype = "dashed")
 ```
-
-
-What happens if you use less stringent priors?
 
 
 ### Multiple regression -- adding another predictor
 
-We know that probability of getting married and divorced grows with age. So let's 
-add age at marriage to our model.
+So, we found that marriage rate can predict divorce rate.
+But how are marriage and divorce rates related to age (at marriage). 
+
+
+We can see that divorce rate decreases with increasing age at marriage.
+```{r}
+divorce %>% 
+  ggplot(aes(MedianAgeMarriage, Divorce)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+```
+So does marriage rate -- with increasing age marriage rate decreases.
+```{r}
+divorce %>% 
+  ggplot(aes(MedianAgeMarriage, Marriage)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+```
+
 
 #### Model
 
@@ -300,14 +314,6 @@ Here are our default priors:
 get_prior(formula = Divorce ~ Marriage + MedianAgeMarriage, data = divorce, family = gaussian())
 ```
 
-We can see that divorce rate decreases with increasing age at marriage.
-```{r}
-divorce %>% 
-  ggplot(aes(MedianAgeMarriage, Divorce)) +
-  geom_point() +
-  geom_smooth(method = "lm")
-```
-
 
 ```{r}
 priors <- c(
@@ -326,6 +332,9 @@ mod4.3 <- brm(
 )
 ```
 
+After adding MedianAgeMarriage to our model, we can see that Marriage is now 
+close to zero with 95% CI spanning from negative to positive values.
+Whereas, MedianAgeMarriage coefficient is clearly negative.
 
 ```{r}
 summary(mod4.3)
@@ -341,6 +350,8 @@ plot(mod4.3)
 pp_check(mod4.3)
 ```
 
+If we leave marriage rate out of model altogether, median age at marriage is 
+still very similar to previous model and clearly negative.
 
 ```{r}
 mod4.4 <- brm(
@@ -371,6 +382,10 @@ samples4.4 <- posterior_samples(mod4.4)
   drop_na())
 ```
 
+Here we can see that Marriage coefficient is clearly different from zero only 
+when MedianAgeMarriage is left out from model. By adding Marriage to model, 
+MedianAgeMarriage becomes slightly more uncertain. 
+
 ```{r}
 samples %>% 
   ggplot() +
@@ -380,4 +395,12 @@ samples %>%
   coord_flip() +
   theme(axis.title.y = element_blank())
 ```
+
+Once we know median age at marriage, there is little or no additional predictive 
+power in also knowing the rate of marriage. This does not mean that there is 
+no value in knowing marriage rate, besides when median age at marriage is 
+not available, then marriage would be very valuable.
+The association between marriage rate and divorce rate is spurious, 
+caused by the influence of age of marriage on both marriage rate and divorce rate.
+
 
