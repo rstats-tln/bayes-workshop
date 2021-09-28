@@ -369,6 +369,9 @@ mod4.4 <- brm(
 summary(mod4.4)
 ```
 
+
+#### Spurius association
+
 Let's compare posteriors of parameters from all these models, we can drop intercept as it's expected to be 0.
 
 ```{r}
@@ -404,3 +407,186 @@ The association between marriage rate and divorce rate is spurious,
 caused by the influence of age of marriage on both marriage rate and divorce rate.
 
 
+#### Plots to evaluate multiple regression fit
+
+R. McElreath proposes in his 'Rethinking' book (2020) three types of plots to 
+assess multiple regression model. "None of these techniques is suitable for all 
+jobs, and most do not generalize beyond linear regression."
+
+- **Predictor residual plots** show the outcome against residual predictor values to better understanding the statistical model
+- **Counterfactual plots** show the implied predictions for imaginary 
+experiments (generated data) to explore the causal implications of manipulating 
+one or more variables.
+- **Posterior prediction plots** show model-based predictions against raw data, 
+or otherwise display the error in prediction to check fit and assessing predictions.
+
+
+##### Posterior prediction plot
+
+In addition to understanding the estimates, it's important to check the model 
+fit against the observed data. 
+
+Here, we plot predicted values versus observed values at data point level:
+```{r}
+divorce %>% 
+  add_epred_draws(mod4.4) %>% 
+  mean_qi() %>% 
+  ggplot(aes(x = Divorce, y = .epred)) +
+  geom_abline(linetype = "dashed") +
+  geom_point() +
+  geom_linerange(aes(ymin = .lower, ymax = .upper)) +
+  geom_text(data = . %>% filter(Loc %in% c("ID", "UT")),
+            aes(label = Loc), 
+            hjust = 0, nudge_x = - 0.3) +
+  labs(x = "Observed divorce", 
+       y = "Predicted divorce",
+       caption = "Points denote mean and\nline denotes 95% quantile interval") +
+  coord_fixed() +
+  theme_classic()
+```
+
+
+##### Predictor residual plots
+
+*A predictor residual is the average prediction error when we use all of the 
+other predictor variables to model a predictor of interest.*
+
+We have two predictors in our model -- Marriage and MedianAgeMarriage.
+Let's fit two models.
+
+First Marriage ~ MedianAgeMarriage.
+```{r}
+priors <- c(
+  prior("normal(0, 0.2)", class = "Intercept"),
+  prior("normal(0, 0.5)", class = "b"),
+  prior("normal(0, 1)", class = "sigma")
+)
+mod4.5 <- brm(
+  formula = Marriage ~ MedianAgeMarriage,
+  data = divorce,
+  family = gaussian(),
+  prior = priors,
+  chains = 3,
+  file = here("models/Marriage~MedianAgeMarriage"),
+  sample_prior = "yes"
+)
+```
+
+
+```{r}
+summary(mod4.5)
+```
+
+Then MedianAgeMarriage ~ Marriage.
+```{r}
+mod4.6 <- brm(
+  formula = MedianAgeMarriage ~ Marriage,
+  data = divorce,
+  family = gaussian(),
+  prior = priors,
+  chains = 3,
+  file = here("models/MedianAgeMarriage~Marriage"),
+  sample_prior = "yes"
+)
+```
+
+
+```{r}
+summary(mod4.6)
+```
+
+
+```{r}
+add_residual_draws(divorce, mod4.5) %>% 
+  mean_qi() %>% 
+  ggplot(aes(MedianAgeMarriage, Marriage)) +
+  geom_point() +
+  geom_abline(slope = fixef(mod4.5)[2,1], intercept = fixef(mod4.5)[1,1]) +
+  geom_segment(aes(x = MedianAgeMarriage, xend = MedianAgeMarriage, y = Marriage, yend = Marriage - .residual), color = "blue")  +
+  coord_fixed()
+```
+
+Residual variation in marriage rate shows little association with divorce rate.
+This plot displays the linear relationship between divorce and marriage rates, 
+having conditioned already on median age of marriage. 
+```{r}
+add_residual_draws(divorce, mod4.5) %>% 
+  mean_qi() %>% 
+  ggplot(aes(.residual, Divorce)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  labs(x = "Marriage rate residuals", y = "Divorce rate") +
+  coord_fixed()
+```
+
+
+```{r}
+add_residual_draws(divorce, mod4.6) %>% 
+  mean_qi() %>% 
+  ggplot(aes(Marriage, MedianAgeMarriage)) +
+  geom_point() +
+  geom_abline(slope = fixef(mod4.6)[2,1], intercept = fixef(mod4.6)[1,1]) +
+  geom_segment(aes(x = Marriage, xend = Marriage, y = MedianAgeMarriage, yend = MedianAgeMarriage - .residual), color = "blue")
+```
+
+Divorce rate on age at marriage residuals, showing remaining variation, and 
+this variation is associated with divorce rate.
+States in which people marry older than expected for a given rate of marriage 
+tend to have less divorce:
+```{r}
+add_residual_draws(divorce, mod4.6) %>% 
+  mean_qi() %>% 
+  ggplot(aes(.residual, Divorce)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  labs(x = "Median age of marriage residuals", y = "Divorce rate") +
+  coord_fixed()
+```
+
+
+> These predictor-based models show that full regression models measure the 
+remaining association of each predictor with the outcome, after already 
+knowing the other predictors.
+
+
+##### Counterfactual plots
+
+Counterfactual plots display the causal implications of the model. 
+They are called counterfactual, because they can be produced for any values of 
+the predictor variables, even unobserved combinations.
+
+Basic use would be to observe how the outcome would change as you change one 
+predictor at a time.
+
+```{r}
+tibble(Marriage = seq(from = -3, to = 3, length.out = 30),
+       MedianAgeMarriage = mean(divorce$MedianAgeMarriage)) %>% 
+  add_predicted_draws(mod4.3) %>% 
+  mean_qi(.prediction) %>% 
+  ggplot(aes(Marriage, .prediction)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = .lower, ymax = .upper), alpha = 1/5) +
+  labs(subtitle = "Counterfactual plot for which MedianAgeMarriage = 0",
+       y = "Divorce", 
+       caption = "Line denotes model prediction and\nlight gray ribbon denotes prediction 95% qi.") +
+  coord_fixed() +
+  theme_classic()
+```
+
+
+```{r}
+tibble(MedianAgeMarriage = seq(from = -3, to = 3, length.out = 30),
+       Marriage = mean(divorce$Marriage)) %>% 
+  add_predicted_draws(mod4.3) %>% 
+  mean_qi(.prediction) %>% 
+  ggplot(aes(MedianAgeMarriage, .prediction)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = .lower, ymax = .upper), alpha = 1/5) +
+  labs(subtitle = "Counterfactual plot for which Marriage = 0",
+       y = "Divorce", 
+       caption = "Line denotes model prediction and\nlight gray ribbon denotes prediction 95% qi.") +
+  coord_fixed() +
+  theme_classic()
+```
