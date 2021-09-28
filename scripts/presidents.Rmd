@@ -442,6 +442,13 @@ More elaborate plot with :
 pairs(mod2)
 ```
 
+Correlation between intercept and sigma can be calculated like so:
+```{r}
+samples2 %>% 
+  select(b_Intercept, sigma) %>% 
+  cor()
+```
+
 
 ### Bayesian estimation vs OLS
 
