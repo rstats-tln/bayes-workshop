@@ -1,0 +1,252 @@
+---
+title: "Logistic Regression -- Poisson models"
+author: "Taavi Päll and Ülo Maiväli"
+date: "2021-10-02"
+output: github_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+Here we have a look how to fit Poisson models.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Loading some required libraries
+
+```{r}
+library(tidyverse)
+library(here)
+library(brms)
+library(bayesplot)
+library(tidybayes)
+library(modelr)
+library(lubridate)
+```
+
+
+## Data
+
+Estonian COVID-19 data on the daily number of new reported COVID-19 cases and deaths is from ECDC <https://www.ecdc.europa.eu/en/publications-data/data-daily-new-cases-covid-19-eueea-country>
+
+```{r}
+(covid_deaths_imported <- read_csv(here("data/covid19_deaths.csv")))
+```
+
+```{r}
+(covid_deaths <- covid_deaths_imported %>% 
+   mutate(
+     dateRep = dmy(dateRep),
+     time = yday(dateRep),
+     time = as.numeric(scale(time))
+   )
+ )
+```
+
+
+
+```{r}
+covid_deaths %>% 
+  ggplot() +
+  geom_col(aes(dateRep, deaths)) +
+  labs(x = "Date", y = "Number of COVID-19 deaths")
+```
+
+```{r}
+covid_deaths %>% 
+  ggplot() +
+  geom_bar(aes(deaths))
+```
+
+```{r}
+mean(covid_deaths$deaths)
+```
+
+```{r}
+x <- rpois(1000, mean(covid_deaths$deaths))
+qplot(x)
+```
+
+
+### Simulate counts first
+
+Here we simulate some counts to demonstrate that in Poisson distribution 
+the mean and the variance are equal.
+
+```{r}
+set.seed(11) 
+tibble(y = rbinom(1e5, 1000, 1 / 1000)) %>% 
+  summarise(
+    y_mean = mean(y),
+    y_variance = var(y)
+    )
+```
+
+Poisson likelihood is 
+
+$$y \sim Poisson(\lambda)$$
+
+Since $\lambda$ is constrained to be positive, we typically use the log link. 
+Thus the basic Poisson regression model would be
+
+$$\text{deaths}_i \sim Poisson(\lambda_i)$$
+$$log(\lambda_i) = \alpha + \beta \text{time}_i$$
+$$\alpha \sim \text{Normal}(0, 10)$$
+$$\beta \sim \text{Normal}(0, 1)$$
+
+## Model
+
+```{r}
+f <- deaths ~ time
+get_prior(formula = f, data = covid_deaths, family = poisson(link = "log")) # log link is default
+```
+
+```{r}
+range(covid_deaths$deaths)
+```
+
+```{r}
+table(covid_deaths$deaths)
+```
+
+
+```{r}
+priors <- c(
+  prior("normal(0, 0.2)", class = "Intercept"),
+  prior("normal(0, 0.85)", class = "b")
+)
+mod1.0 <- brm(
+  formula = deaths ~ time,
+  data = covid_deaths,
+  family = poisson(link = "log"),
+  prior = priors,
+  chains = 3,
+  file = here("models/deaths~time_prior_only"),
+  sample_prior = "only",
+  file_refit = "on_change"
+)
+```
+
+
+```{r}
+summary(mod1.0)
+```
+
+
+
+```{r}
+pp_check(mod1.0)
+```
+
+```{r}
+y <- covid_deaths$deaths
+yrep <- posterior_predict(mod1.0)
+```
+
+
+```{r}
+ppc_dens_overlay(y, yrep[1:50, ])
+```
+
+
+Number of zeros.
+```{r}
+prop_zero <- function(x) mean(x == 0)
+print(prop_zero(y))
+```
+
+```{r}
+ppc_stat(y, yrep, stat = "prop_zero")
+```
+
+Mean and sd are correlated, which is common with count data, specially with Poisson distribution, where mean and variance are identical.
+```{r}
+ppc_stat_2d(y, yrep, stat = c("mean", "sd"))
+```
+
+
+
+```{r}
+ppc_stat(y, yrep, stat = "mean", binwidth = 1)
+```
+
+```{r}
+ppc_stat(y, yrep, stat = "max", binwidth = 1)
+```
+
+
+```{r}
+covid_deaths %>% 
+  add_epred_draws(mod1.0) %>% 
+  ggplot() +
+  geom_point(aes(deaths, .epred))
+```
+
+
+
+### Adding data
+
+```{r}
+mod1.1 <- brm(
+  formula = deaths ~ time,
+  data = covid_deaths,
+  family = poisson(link = "log"),
+  prior = priors,
+  chains = 3,
+  file = here("models/deaths~time"),
+  sample_prior = "yes",
+  file_refit = "on_change"
+)
+```
+
+
+```{r}
+plot(mod1.1)
+```
+
+```{r}
+pp_check(mod1.1)
+```
+
+
+```{r}
+plot(conditional_effects(mod1.1), plot = FALSE)[[1]] +
+  geom_point(data = covid_deaths, aes(time, deaths), inherit.aes = FALSE)
+```
+
+### Splines
+
+```{r}
+mod1.2 <- update(mod1.1, formula = deaths ~ s(time, k = 6), file = here("models/deaths~s(time,k=6)"))
+```
+
+```{r}
+plot(mod1.2)
+```
+
+
+```{r}
+pp_check(mod1.2)
+```
+
+
+```{r}
+samples1.2 <- covid_deaths %>% 
+  add_epred_draws(mod1.2)
+```
+
+
+```{r}
+samples1.2 %>% 
+  ggplot() +
+  stat_lineribbon(aes(time, .epred), alpha = 1/5) +
+  geom_point(aes(time, deaths))
+```
+
+Same plot using conditional effects:
+```{r}
+plot(conditional_effects(mod1.2), ask = FALSE, points = TRUE)
+```
+
