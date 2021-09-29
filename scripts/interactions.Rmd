@@ -1,0 +1,322 @@
+---
+title: "Interactions"
+author: "Taavi Päll and Ülo Maiväli"
+date: "2021-10-02"
+output: github_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+To model situation where the importance of one predictor depends upon another 
+predictor we need interaction. 
+Interaction allows parameters to be conditional on further aspects of the data. 
+The simplest kind of interaction, a linear interaction, is built by extending 
+the linear modeling strategy to parameters within the linear model.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Loading some required libraries
+
+```{r}
+library(tidyverse)
+library(here)
+library(brms)
+library(bayesplot)
+library(tidybayes)
+library(modelr)
+```
+
+
+## Data
+
+To model interactions, we are going to use ruggedness data from **rethinking** 
+package.
+
+```{r}
+(terrain_ruggedness <- read_csv(here("data/rugged.csv")))
+```
+
+The variable **rugged** is a terrain ruggedness index that quantifies the 
+topographic heterogeneity of a landscape. 
+
+The outcome variable here is the real gross domestic product per 
+capita, from the year 2000, **rgdppc_2000**.
+
+It's interesting that higher terrain ruggedness related to bad economies 
+outside of Africa, but African economies may actually benefit from more rugged 
+terrain.
+
+We want to log transform GDP values and we need to create new variable to group 
+countries locating in or out Africa.
+
+We also rescale log GDP relative to average and ruggedness relative to maximum 
+ruggedness.
+
+To account whether nations are from Africa or not from Africa we create a new 
+dummy variable "continent".
+
+```{r}
+ruggedness <- terrain_ruggedness %>% 
+  mutate(
+    log_gdp = log(rgdppc_2000),
+    log_gdp = log_gdp / mean(log_gdp, na.rm = TRUE),
+    rugged = rugged / max(rugged, na.rm = TRUE),
+    continent = ifelse(cont_africa, "African nations", "Non-African nations")
+    ) %>% 
+  drop_na(log_gdp)
+```
+
+Let's make plots
+```{r}
+ruggedness %>% 
+  ggplot(aes(rugged, log_gdp)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  facet_wrap(~continent) +
+  labs(x = "Terrain ruggedness (std)", y = "log GDP (proportion of mean)")
+```
+
+We can see that in African nations is higher terrain ruggedness apparently 
+related to higher GDP, whereas in Non-African nations trend is negative.
+
+## Model
+
+### Prior-only -- vague priors
+
+Let's try to fit our first model and figure out priors, default look like this
+```{r}
+f <- log_gdp ~ rugged
+get_prior(formula = f, data = ruggedness, family = gaussian())
+```
+
+
+Vague priors
+```{r}
+priors <- c(
+  prior("normal(1, 1)", class = "Intercept"),
+  prior("normal(0, 1)", class = "b"),
+  prior("normal(0, 1)", class = "sigma")
+)
+mod1.0 <- brm(
+  formula = log_gdp ~ rugged,
+  data = ruggedness,
+  family = gaussian(),
+  prior = priors,
+  chains = 3,
+  file = here("models/log_gdp~rugged_prior_only1"),
+  sample_prior = "only"
+)
+```
+
+```{r}
+plot(mod1.0)
+```
+
+```{r}
+samples1.0 <- posterior_samples(mod1.0) %>% 
+  sample_n(50)
+```
+
+
+```{r}
+ruggedness %>% 
+  ggplot(aes(rugged, log_gdp)) +
+  geom_hline(yintercept = range(ruggedness$log_gdp), linetype = "dashed") +
+  geom_abline(data = samples1.0, aes(slope = b_rugged, intercept = b_Intercept), size = 0.3, alpha = 0.3) +
+  labs(x = "Ruggedness", y = "log GDP", subtitle = "intercept ~ normal(1, 1)\nb ~ normal(0, 1)") +
+  theme_classic()
+```
+### Prior-only -- more stringent priors
+
+Maximum possible change in log GDP is 0.6 within terrain ruggedness range in 
+our data, but many regression lines display much more stronger effects, 
+suggesting that we are using too lenient priors.
+
+We can try narrower prior for b.
+
+```{r}
+priors <- c(
+  prior("normal(1, 0.1)", class = "Intercept"),
+  prior("normal(0, 0.3)", class = "b"),
+  prior("normal(0, 1)", class = "sigma")
+)
+mod1.1 <- brm(
+  formula = log_gdp ~ rugged,
+  data = ruggedness,
+  family = gaussian(),
+  prior = priors,
+  chains = 3,
+  file = here("models/log_gdp~rugged_prior_only2"),
+  sample_prior = "only"
+)
+```
+
+
+
+```{r}
+plot(mod1.1)
+```
+
+```{r}
+samples1.1 <- posterior_samples(mod1.1) %>% 
+  sample_n(50)
+```
+
+With stronger priors, picture looks much better.
+```{r}
+ruggedness %>% 
+  ggplot(aes(rugged, log_gdp)) +
+  geom_hline(yintercept = range(ruggedness$log_gdp), linetype = "dashed") +
+  geom_abline(data = samples1.1, aes(slope = b_rugged, intercept = b_Intercept), size = 0.3, alpha = 0.3) +
+  labs(x = "Ruggedness", y = "log GDP", subtitle = "intercept ~ normal(1, 0.1)\nb ~ normal(0, 0.3)") +
+  theme_classic()
+```
+
+### One-predictor model with data
+
+Model with data:
+```{r}
+mod1.2 <- brm(
+  formula = log_gdp ~ rugged,
+  data = ruggedness,
+  family = gaussian(),
+  prior = priors,
+  chains = 3,
+  file = here("models/log_gdp~rugged"),
+  sample_prior = "yes"
+)
+```
+
+```{r}
+plot(mod1.2)
+```
+
+
+
+Posterior summary suggest that terrain ruggedness (b_rugged) has no effect on 
+log_gdp.
+```{r}
+posterior_summary(mod1.2)
+```
+
+```{r}
+samples1.2 <- posterior_samples(mod1.2) %>% 
+  sample_n(50)
+```
+
+
+```{r}
+ruggedness %>% 
+  ggplot(aes(rugged, log_gdp)) +
+  geom_hline(yintercept = range(ruggedness$log_gdp), linetype = "dashed") +
+  geom_smooth(method = "lm", se = FALSE) +
+  geom_abline(data = samples1.2, aes(slope = b_rugged, intercept = b_Intercept), size = 0.3, alpha = 0.3) +
+  labs(x = "Ruggedness", y = "log GDP", subtitle = "intercept ~ normal(1, 0.1)\nb ~ normal(0, 0.3)") +
+  theme_classic()
+```
+
+### Adding an another predictor
+
+Let's see what happens if we add our dummy variable "continent" to model. 
+We could also use original variable "cont_africa", but then we want to convert 
+it to a category, otherwise it will be treatad as continuous, which it's not.
+```{r}
+mod1.3 <- update(
+  mod1.2, 
+  formula = log_gdp ~ rugged + continent, 
+  newdata = ruggedness, 
+  file = here("models/log_gdp~rugged+continent")
+  )
+```
+
+
+```{r}
+plot(mod1.3)
+```
+
+
+```{r}
+summary(mod1.3)
+```
+
+
+```{r}
+plot(conditional_effects(mod1.3), ask = FALSE, points = TRUE)
+```
+
+
+```{r}
+samples1.3 <- ruggedness %>% 
+  select(log_gdp, rugged, continent) %>% 
+  add_epred_draws(mod1.3)
+```
+
+Including an indicator for African nations has no effect on the slope.
+We can only see that African nations have lower log GDP.
+```{r}
+samples1.3 %>% 
+  mean_qi() %>% 
+  ggplot(aes(x = rugged)) +
+  geom_point(aes(y = log_gdp, color = continent)) +
+  geom_smooth(aes(y = .epred, color = continent), method = "lm", se = FALSE) +
+  geom_ribbon(aes(ymin = .upper, ymax = .lower, fill = continent), alpha = 1/5) +
+  theme_classic() +
+  theme(legend.title = element_blank(), legend.position = "bottom")
+```
+
+### Plus interaction
+
+To recover the change in slope that we saw in our first plot, we need to add a 
+proper interaction effect. 
+
+Let's see what happens when we add a term specifying an interaction between 
+ruggedness and continent to our model:
+
+```{r}
+mod1.4 <- update(
+  mod1.2, 
+  formula = log_gdp ~ rugged + continent + rugged:continent, 
+  newdata = ruggedness, 
+  file = here("models/log_gdp~rugged+continent+rugged:continent")
+  )
+```
+
+
+```{r}
+plot(mod1.4)
+```
+
+```{r}
+summary(mod1.4)
+```
+
+```{r}
+samples1.4 <- ruggedness %>% 
+  select(log_gdp, rugged, continent) %>% 
+  add_epred_draws(mod1.4)
+```
+
+Now we can see from our model change in slope whether nation is from Africa or not.
+```{r}
+samples1.4 %>% 
+  mean_qi() %>% 
+  ggplot(aes(x = rugged)) +
+  geom_point(aes(y = log_gdp)) +
+  geom_smooth(aes(y = .epred), method = "lm", se = FALSE) +
+  geom_ribbon(aes(ymin = .upper, ymax = .lower), alpha = 1/5) +
+  facet_wrap(~continent, scales = "free_y")
+```
+
+We can also visualize difference in slopes using `conditional_effects()` 
+function, by specifying that now we are interested only in interaction effect.
+```{r}
+plot(conditional_effects(mod1.4, effects = "rugged:continent"), 
+     ask = FALSE, plot = FALSE, points = TRUE)[[1]] +
+  theme(legend.title = element_blank(), legend.position = "bottom") +
+  coord_fixed()
+```
+
+
