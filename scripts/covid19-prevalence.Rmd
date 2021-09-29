@@ -66,8 +66,9 @@ covid %>%
 
 $$\text{positive}_i \sim \text{Binomial}(\text{tested}, p_i)$$
 
-$$logit(p_i) = \alpha + \beta_i\text{time}$$
+$$logit(p_i) = \alpha + \beta\text{time}_i$$
 $$\alpha \sim \text{Normal}(0, 10)$$
+$$\beta \sim \text{Normal}(0, 10)$$
 
 Default prior.
 ```{r}
@@ -103,7 +104,7 @@ mod1.0 <- brm(
   family = binomial(),
   prior = priors,
   chains = 3,
-  file = here("models/positive|trials(tested)~1_prior_only"),
+  file = here("models/positive|trials(tested)~time_prior_only"),
   sample_prior = "only",
   file_refit = "on_change"
 )
