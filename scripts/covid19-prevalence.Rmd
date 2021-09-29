@@ -1,5 +1,5 @@
 ---
-title: "Logistic Regression -- Counting and Classification"
+title: "Logistic Regression -- binomial models"
 author: "Taavi Päll and Ülo Maiväli"
 date: "2021-10-02"
 output: github_document
@@ -8,7 +8,7 @@ editor_options:
     wrap: 72
 ---
 
-We focus on the two most common types of count models: the binomial and the Poisson.
+Two most common types of count models are the binomial and the Poisson, here we have a look how to fit binomial models.
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -27,10 +27,7 @@ library(lubridate)
 ```
 
 
-
-## Binomial models
-
-### Data
+## Data
 
 COVID19 data are from ongoing cross-sectional study "The study on the prevalence of the coronavirus in Estonia" <https://www.ut.ee/en/research/study-prevalence-coronavirus-estonia>
 
@@ -65,7 +62,7 @@ covid %>%
   labs(x = "Study wave end date", y = "Proportion of SARS-CoV-2\npositive individuals")
 ```
 
-### Intercept-only model
+## Finding priors
 
 $$\text{positive}_i \sim \text{Binomial}(\text{tested}, p_i)$$
 
@@ -101,7 +98,7 @@ priors <- c(
   prior("normal(0, 0.05)", class = "b")
 )
 mod1.0 <- brm(
-  formula = positive | trials(tested) ~ end_date,
+  formula = positive | trials(tested) ~ time,
   data = covid,
   family = binomial(),
   prior = priors,
@@ -132,6 +129,8 @@ fixef(mod1.0) %>% inv_logit_scaled()
 pp_check(mod1.0)
 ```
 
+
+## Fitting with data
 
 Let's include data:
 ```{r}
@@ -171,12 +170,6 @@ fixef(mod1.1) %>% inv_logit_scaled()
    mutate_at(".linpred", inv_logit_scaled))
 ```
 
-```{r}
-samples1.1 %>% 
-  ungroup() %>% 
-  mean_qi(.linpred)
-```
-
 To overlay original proportions to `conditional_effects` plot set
 `inherit.aes = FALSE` (setting `point = TRUE` inside plot call will show number of positive subj. not props!).
 ```{r}
@@ -194,6 +187,8 @@ samples1.1 %>%
 ```
 
 Not much of a fit..
+
+## Trying polynomials
 
 We can try to fix this fit by using polynomials, here we add second degree 
 polynomial to model formula
@@ -214,6 +209,7 @@ samples1.2 <- covid %>%
   add_linpred_draws(mod1.2) %>% 
    mutate_at(".linpred", inv_logit_scaled)
 ```
+
 Slightly better.
 ```{r}
 samples1.2 %>% 
@@ -247,6 +243,7 @@ samples1.3 %>%
   geom_point(aes(time, positive / tested))
 ```
 
+## What about splines
 
 And then splines:
 ```{r}
@@ -284,9 +281,7 @@ p + geom_point(data = covid, aes(time, prop_pos), inherit.aes = FALSE)
 ```
 
 
-```{r}
-
-```
+### Comparing to original study estimates
 
 We can also overlay original study weighted estimates and 95% confidence interval (red):
 ```{r}
