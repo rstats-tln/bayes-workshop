@@ -554,12 +554,12 @@ knowing the other predictors.
 ##### Counterfactual plots
 
 Counterfactual plots display the causal implications of the model. 
-They are called counterfactual, because they can be produced for any values of 
-the predictor variables, even unobserved combinations.
+They are called counterfactual (*relating to or expressing what has not happened or is not the case*), because they can be produced for any values of the predictor variables, even unobserved combinations.
 
 Basic use would be to observe how the outcome would change as you change one 
 predictor at a time.
 
+Here we generate data for marriage rate and keep median age of marriage at 0 (never happens).
 ```{r}
 tibble(Marriage = seq(from = -3, to = 3, length.out = 30),
        MedianAgeMarriage = mean(divorce$MedianAgeMarriage)) %>% 
@@ -575,7 +575,7 @@ tibble(Marriage = seq(from = -3, to = 3, length.out = 30),
   theme_classic()
 ```
 
-
+Here we generate data for median age of marriage and keeping marriage rate 0.
 ```{r}
 tibble(MedianAgeMarriage = seq(from = -3, to = 3, length.out = 30),
        Marriage = mean(divorce$Marriage)) %>% 
