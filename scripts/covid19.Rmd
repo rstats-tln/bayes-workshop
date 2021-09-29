@@ -1,0 +1,311 @@
+---
+title: "Logistic Regression -- Counting and Classification"
+author: "Taavi Päll and Ülo Maiväli"
+date: "2021-10-02"
+output: github_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+We focus on the two most common types of count models: the binomial and the Poisson.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Loading some required libraries
+
+```{r}
+library(tidyverse)
+library(here)
+library(brms)
+library(bayesplot)
+library(tidybayes)
+library(modelr)
+library(lubridate)
+```
+
+
+
+## Binomial models
+
+### Data
+
+COVID19 data are from ongoing cross-sectional study "The study on the prevalence of the coronavirus in Estonia" <https://www.ut.ee/en/research/study-prevalence-coronavirus-estonia>
+
+
+![SARS-CoV2 prevalence](https://www.ut.ee/sites/default/files/www_ut/teadus/seirelaine-tulemused-muudetud-jrejest.png)
+
+
+```{r}
+(covid <- read_csv(here("data/covid19.csv")))
+```
+
+Let's convert wave to factor.
+```{r}
+(covid <- covid %>% 
+   mutate(
+     wave = as.factor(wave),
+     start_day = yday(start_date),
+     end_day = yday(end_date),
+     study_period = end_day - start_day,
+     time = as.numeric(scale(end_day)),
+     prop_pos = positive / tested
+   )
+ )
+```
+
+
+
+```{r}
+covid %>% 
+  ggplot() +
+  geom_point(aes(end_date, prop_pos)) +
+  labs(x = "Study wave end date", y = "Proportion of SARS-CoV-2\npositive individuals")
+```
+
+### Intercept-only model
+
+$$\text{positive}_i \sim \text{Binomial}(\text{tested}, p_i)$$
+
+$$logit(p_i) = \alpha + \beta_i\text{time}$$
+$$\alpha \sim \text{Normal}(0, 10)$$
+
+Default prior.
+```{r}
+f <- positive | trials(tested) ~ time
+get_prior(formula = f, data = covid, family = binomial())
+```
+
+
+We need to figure out what priors we should use for the intercept and beta
+.
+We can do some calculation, given that sample size is approximately 2000 and 
+it's plausible that we find only 1 positive, up to ~100 positives.
+```{r}
+logit_scaled(c(1/2500, 100/2000))
+```
+
+Let's figure out our prior using trial-and-error method.
+```{r}
+z <- rnorm(1000, -5.4, 0.8)
+range(z)
+plot(density(inv_logit_scaled(z)))
+```
+
+
+```{r}
+priors <- c(
+  prior("normal(-5.4, 0.8)", class = "Intercept"),
+  prior("normal(0, 0.05)", class = "b")
+)
+mod1.0 <- brm(
+  formula = positive | trials(tested) ~ end_date,
+  data = covid,
+  family = binomial(),
+  prior = priors,
+  chains = 3,
+  file = here("models/positive|trials(tested)~1_prior_only"),
+  sample_prior = "only",
+  file_refit = "on_change"
+)
+```
+
+
+```{r}
+plot(mod1.0)
+```
+
+
+```{r}
+summary(mod1.0)
+```
+
+We can use `inv_logit_scaled()` function to look at transformed coefficients.
+
+```{r}
+fixef(mod1.0) %>% inv_logit_scaled()
+```
+
+```{r}
+pp_check(mod1.0)
+```
+
+
+Let's include data:
+```{r}
+mod1.1 <- brm(
+  formula = positive | trials(tested) ~ time,
+  data = covid,
+  family = binomial(),
+  prior = priors,
+  chains = 3,
+  file = here("models/positive|trials(tested)~time"),
+  sample_prior = "yes",
+  file_refit = "on_change"
+)
+```
+
+
+```{r}
+plot(mod1.1)
+```
+
+
+```{r}
+summary(mod1.1)
+```
+
+```{r}
+pp_check(mod1.1)
+```
+
+```{r}
+fixef(mod1.1) %>% inv_logit_scaled()
+```
+ 
+```{r}
+(samples1.1 <- covid %>% 
+  add_linpred_draws(mod1.1) %>% 
+   mutate_at(".linpred", inv_logit_scaled))
+```
+
+```{r}
+samples1.1 %>% 
+  ungroup() %>% 
+  mean_qi(.linpred)
+```
+
+To overlay original proportions to `conditional_effects` plot set
+`inherit.aes = FALSE` (setting `point = TRUE` inside plot call will show number of positive subj. not props!).
+```{r}
+p <- plot(conditional_effects(mod1.1), plot = FALSE)[[1]]
+p + geom_point(data = covid, aes(time, prop_pos), inherit.aes = FALSE)
+```
+
+We can easily recreate this plot using **tidybayes** package `stat_lineribbon`.
+As a bonus we get nice quantile interval rainbow.
+```{r}
+samples1.1 %>% 
+  ggplot() +
+  stat_lineribbon(aes(time, .linpred), alpha = 1/5) +
+  geom_point(aes(time, positive / tested))
+```
+
+Not much of a fit..
+
+We can try to fix this fit by using polynomials, here we add second degree 
+polynomial to model formula
+```{r}
+mod1.2 <- update(mod1.1, formula = positive | trials(tested) ~ time + I(time^2))
+```
+
+```{r}
+plot(mod1.2)
+```
+
+```{r}
+pp_check(mod1.2)
+```
+
+```{r}
+samples1.2 <- covid %>% 
+  add_linpred_draws(mod1.2) %>% 
+   mutate_at(".linpred", inv_logit_scaled)
+```
+Slightly better.
+```{r}
+samples1.2 %>% 
+  ggplot() +
+  stat_lineribbon(aes(time, .linpred), alpha = 1/5) +
+  geom_point(aes(time, positive / tested))
+```
+
+More polynomials
+```{r}
+mod1.3 <- update(mod1.1, formula = positive | trials(tested) ~ time + I(time^2) + I(time^3) + I(time^4) + I(time^5) + I(time^6))
+```
+
+
+```{r}
+pp_check(mod1.3)
+```
+
+
+```{r}
+samples1.3 <- covid %>% 
+  add_linpred_draws(mod1.3) %>% 
+   mutate_at(".linpred", inv_logit_scaled)
+```
+
+
+```{r}
+samples1.3 %>% 
+  ggplot() +
+  stat_lineribbon(aes(time, .linpred), alpha = 1/5) +
+  geom_point(aes(time, positive / tested))
+```
+
+
+And then splines:
+```{r}
+mod1.4 <- update(mod1.1, formula = positive | trials(tested) ~ s(time, k = 6))
+```
+
+```{r}
+plot(mod1.4)
+```
+
+
+```{r}
+pp_check(mod1.4)
+```
+
+
+```{r}
+samples1.4 <- covid %>% 
+  add_linpred_draws(mod1.4) %>% 
+   mutate_at(".linpred", inv_logit_scaled)
+```
+
+This seems to be worked:
+```{r}
+samples1.4 %>% 
+  ggplot() +
+  stat_lineribbon(aes(time, .linpred), alpha = 1/5) +
+  geom_point(aes(time, positive / tested))
+```
+
+Same plot using conditional effects:
+```{r}
+p <- plot(conditional_effects(mod1.4), plot = FALSE)[[1]]
+p + geom_point(data = covid, aes(time, prop_pos), inherit.aes = FALSE)
+```
+
+
+```{r}
+
+```
+
+We can also overlay original study weighted estimates and 95% confidence interval (red):
+```{r}
+orig_study <- tribble(
+  ~wave, ~prop, ~lower, ~upper,
+  20, 1.04, 0.68, 1.54,
+  18, 0.35, 0.15, 0.67,
+  17, 1.27, 0.86, 1.8,
+  16, 2.27, 1.74, 2.92,
+  15, 4.13, 3.37, 5.0,
+  14, 1.67, 1.21, 2.22,
+  13, 2.05, 1.53, 2.69,
+  12, 2.69, 2.08, 3.42,
+) %>% 
+  mutate_at(c("prop", "lower", "upper"), ~.x / 100) %>% 
+  mutate_at(c("wave"), as.factor) %>% 
+  left_join(select(covid, wave, time))
+p + 
+  geom_point(data = covid, aes(time, prop_pos), inherit.aes = FALSE) +
+  geom_pointrange(data = orig_study, aes(time, prop, ymin = lower, ymax = upper), inherit.aes = FALSE, alpha = 1/3, color = "red")
+```
+
