@@ -39,8 +39,7 @@ Estonian COVID-19 data on the daily number of new reported COVID-19 cases and de
 (covid_deaths <- covid_deaths_imported %>% 
    mutate(
      dateRep = dmy(dateRep),
-     time = yday(dateRep),
-     time = as.numeric(scale(time))
+     time = yday(dateRep)
    )
  )
 ```
@@ -248,5 +247,36 @@ samples1.2 %>%
 Same plot using conditional effects:
 ```{r}
 plot(conditional_effects(mod1.2), ask = FALSE, points = TRUE)
+```
+
+
+Let's see what prediction looks like.
+```{r}
+time <- c(covid_deaths$dateRep, seq(today(), today() + days(30), by = "days")) %>% 
+  yday()
+```
+
+
+```{r}
+tibble(time) %>% 
+  add_predicted_draws(mod1.2) %>% 
+    ggplot() +
+  stat_lineribbon(aes(time, .prediction), alpha = 1/5) +
+  geom_vline(xintercept = yday(today()), linetype = "dashed")
+```
+
+
+Here comes another approach from <http://avehtari.github.io/BDA_R_demos/demos_rstan/trafficdeaths.html>
+```{r}
+y_predict <- posterior_predict(mod1.2, newdata = tibble(time))
+mu <- apply(t(y_predict), 1, quantile, c(0.05, 0.5, 0.95)) %>%
+  t() %>% data.frame(x = time, .) %>% gather(pct, y, -x)
+ggplot() +
+  geom_point(aes(time, deaths), data = covid_deaths, size = 1) +
+  geom_line(aes(x, y, linetype = pct), data = mu, color = 'red') +
+  scale_linetype_manual(values = c(2,1,2)) +
+  labs(x = 'Day', y = 'COVID-19 deaths') +
+  guides(linetype = F)
+
 ```
 
