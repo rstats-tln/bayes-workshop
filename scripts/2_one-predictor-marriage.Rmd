@@ -21,6 +21,7 @@ library(brms)
 library(bayesplot)
 library(tidybayes)
 library(modelr)
+library(rethinking)
 ```
 
 ### Simple regression -- adding a predictor
@@ -79,7 +80,7 @@ anyway and keeping matrices in our tibbles causes trouble for some downstream fu
 ```{r}
 divorce <- waffledivorce %>% 
   select(Loc, Marriage, Divorce, MedianAgeMarriage) %>% 
-  mutate_at(c("Marriage", "Divorce", "MedianAgeMarriage"), rethinking::standardize)
+  mutate_at(c("Marriage", "Divorce", "MedianAgeMarriage"), standardize)
 ```
 
 #### Model
