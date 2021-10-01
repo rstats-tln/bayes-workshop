@@ -595,8 +595,8 @@ We leave it to you to find average male/female height in Estonia and choosing pr
 
 
 ```{r}
-(male_height <- read_csv("
-name, height_cm
+(male_heights <- read_csv("
+name, height
 Martin Müürsepp, 208
 Sten-Erik Jantson, 204
 Rivo Vesik, 200
@@ -632,7 +632,7 @@ Erkki Sarapuu, 172"))
 ```
 
 ```{r}
-(female_heights <- read_csv("name, height_cm
+(female_heights <- read_csv("name, height
 Kati Toots, 169
 Monika Tuvi, 169
 Kerli Kõiv, 157
@@ -654,4 +654,7 @@ Evelyn Sepp, 182
 ```
 
 
+```{r}
+
+```
 
