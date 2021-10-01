@@ -21,6 +21,10 @@ library(brms)
 library(bayesplot)
 library(tidybayes)
 library(modelr)
+library(rethinking)
+library(rstan)
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
 ```
 
 ### Simple regression -- adding a predictor
@@ -79,7 +83,7 @@ anyway and keeping matrices in our tibbles causes trouble for some downstream fu
 ```{r}
 divorce <- waffledivorce %>% 
   select(Loc, Marriage, Divorce, MedianAgeMarriage) %>% 
-  mutate_at(c("Marriage", "Divorce", "MedianAgeMarriage"), rethinking::standardize)
+  mutate_at(c("Marriage", "Divorce", "MedianAgeMarriage"), standardize)
 ```
 
 #### Model
@@ -265,6 +269,84 @@ Plot shows that most of the posterior distribution of Marriage coefficient lies 
 ```{r}
 plot(h4.2, plot = FALSE)[[1]] +
   geom_vline(xintercept = 0, linetype = "dashed")
+```
+
+
+#### Individual work
+
+We have heights data for adult individuals from Estonia (males and females) listed below, but 
+we don't have their weights. Provide predicted weights and 90% quantile intervals 
+for each of these individuals.
+You can use `data(Howell1)` from **rethinking** package to fit the model.
+
+```{r}
+male_heights <- read_csv("
+name, height
+Martin Müürsepp, 208
+Sten-Erik Jantson, 204
+Rivo Vesik, 200
+Kristjan Sarv, 198 
+Jaanus Saks, 197 
+Mart Sander, 196
+Karl-Erik Taukar, 193
+Koit Toome, 192
+Rauno Märks, 192
+Margus Vaher, 190
+Sven Soiver, 189
+Rasmus Mägi, 188
+Hendrik Toompere jr, 187
+Toomas Hendrik Ilves, 186
+Hendrik Adler, 186
+Martin Saar, 186
+Tanel Padar, 186
+Karl-Mihkel Salong, 185
+Mikk Mäe, 185
+Rolf Junior, 184.5 
+Ženja Fokin, 184 
+Rasmus Kaljujärv, 184
+Uku Suviste, 184
+Jüri Pootsmann, 183
+Indrek Raadik, 182
+Ott Lepland, 180.5
+Mart Laar, 180
+Rasmus Rändvee, 179
+Ardo Kaljuvee, 179
+Lauri Pedaja, 177
+Allan Roosileht, 174
+Erkki Sarapuu, 172")
+
+female_heights <- read_csv("name, height
+Kati Toots, 169
+Monika Tuvi, 169
+Kerli Kõiv, 157
+Merlyn Uusküla, 165
+Merliis Rinne, 164
+Anna-Maria Galojan, 162
+Laura Kõrgemäe, 178
+Siiri Sõnajalg, 176.5
+Viivi Sõnajalg, 178
+Beatrice, 173
+Ines Karu-Salo, 171
+Jana Kask, 171
+Jana Pulk, 168
+Maarja-Liis Ilus, 170
+Kristiina Aigro, 176
+Kaia Kanepi, 181
+Evelyn Sepp, 182
+")
+
+male_heights$male <- 1
+female_heights$male <- 0
+(heights_est <- bind_rows(male_heights, female_heights))
+```
+
+Howell data can be loaded like so:
+```{r}
+data(Howell1)
+```
+
+```{r}
+
 ```
 
 
@@ -590,3 +672,6 @@ tibble(MedianAgeMarriage = seq(from = -3, to = 3, length.out = 30),
   coord_fixed() +
   theme_classic()
 ```
+
+
+

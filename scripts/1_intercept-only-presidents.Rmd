@@ -22,6 +22,9 @@ library(brms)
 library(bayesplot)
 library(tidybayes)
 library(modelr)
+library(rstan)
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
 ```
 
 ## Getting data
@@ -584,17 +587,74 @@ plot(h3, plot = FALSE)[[1]] +
 
 ### Individual work 
 
-Run models with different priors, using random sample N = 1?/2?/3/5 from presidents 
-data.
+We have a selection of Estonian male and female heights (see below, and choose either sex) from <https://buduaar.tv3.ee/seltskonnauudised/edetabel-kui-pikad-on-kuulsad-eesti-mehed/> and <https://elu24.postimees.ee/799776/loe-ja-imesta-kui-pikad-on-tuntud-eesti-naised>.
 
-Use, strong informative prior for sigma *normal(7.4, 1)*
+We want you to fit model and test hypothesis that these men/women are taller than average 
+Estonian of same sex.
+We leave it to you to find average male/female height in Estonia and choosing priors.
 
-Set seed for reproducibility!
+
 ```{r}
-set.seed(20210920)
-data <- sample_n(president_heights, 3)
+(male_heights <- read_csv("
+name, height
+Martin Müürsepp, 208
+Sten-Erik Jantson, 204
+Rivo Vesik, 200
+Kristjan Sarv, 198 
+Jaanus Saks, 197 
+Mart Sander, 196
+Karl-Erik Taukar, 193
+Koit Toome, 192
+Rauno Märks, 192
+Margus Vaher, 190
+Sven Soiver, 189
+Rasmus Mägi, 188
+Hendrik Toompere jr, 187
+Toomas Hendrik Ilves, 186
+Hendrik Adler, 186
+Martin Saar, 186
+Tanel Padar, 186
+Karl-Mihkel Salong, 185
+Mikk Mäe, 185
+Rolf Junior, 184.5 
+Ženja Fokin, 184 
+Rasmus Kaljujärv, 184
+Uku Suviste, 184
+Jüri Pootsmann, 183
+Indrek Raadik, 182
+Ott Lepland, 180.5
+Mart Laar, 180
+Rasmus Rändvee, 179
+Ardo Kaljuvee, 179
+Lauri Pedaja, 177
+Allan Roosileht, 174
+Erkki Sarapuu, 172"))
+```
+
+```{r}
+(female_heights <- read_csv("name, height
+Kati Toots, 169
+Monika Tuvi, 169
+Kerli Kõiv, 157
+Merlyn Uusküla, 165
+Merliis Rinne, 164
+Anna-Maria Galojan, 162
+Laura Kõrgemäe, 178
+Siiri Sõnajalg, 176.5
+Viivi Sõnajalg, 178
+Beatrice, 173
+Ines Karu-Salo, 171
+Jana Kask, 171
+Jana Pulk, 168
+Maarja-Liis Ilus, 170
+Kristiina Aigro, 176
+Kaia Kanepi, 181
+Evelyn Sepp, 182
+"))
 ```
 
 
-TEST IT!!!
+```{r}
+
+```
 

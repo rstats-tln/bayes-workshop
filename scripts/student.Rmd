@@ -1,0 +1,227 @@
+---
+title: "'t test' pidevale suurusele"
+author: "Ülo Maiväli"
+date: "2021-10-02"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(brms)
+```
+
+```{r}
+HF_data <- read_delim("data/HF_data.csv", 
+    ";", escape_double = FALSE, trim_ws = TRUE)
+HF_data <- HF_data %>% filter(county != "homeless")
+HF_data <- HF_data %>% select(postacute_therapy, dementia)
+HF_data
+```
+
+
+```{r}
+hist(HF_data$postacute_therapy)
+```
+
+```{r}
+d <- HF_data %>% filter(postacute_therapy>0)
+hist(log(d$postacute_therapy))
+```
+
+
+Think about modeling postacute therapy (PT) using the normal model:
+
+$$PT \sim N(\mu,\sigma)$$
+
+We will essentially get y-s mean and sd from this model. But what, if we want to model y-s mean and/or sd in different levels of another variable x?
+
+That is, we have measured on each object of measurement (patient) 2 things: PT_hrs and dementia status. And we want to model the mean PT_hrs for dementia = 0 and for dementia = 1 patients. The easiest way to do this would be to partition the data on dementia and run 2 separate models, one for each dataset.
+
+$$PT_{dementia=0} \sim N(\mu,\sigma)$$
+
+$$PT_{dementia=1} \sim N(\mu,\sigma)$$
+
+We will get separate estimates from separate models, which know nothing of each other, and from these, we can easily get effect sizes with full posteriors. (posterior_mu_model1 - posterior_mu_model2 would give the posterior for how much less PT hrs demented patients get on average.)
+
+This is wasteful, however, because we could use the information about non-dementia patients on demented patients, and vice versa. The alternative, where we do this, is called “regression”. We regress y on x.
+
+NB! In principle, we should always strive for big models that use all our data. However, for practical reasons, we can still divide the data and run separate models. Statistics is a practical thing – so be practical about it. If a full model is too hard to specify, to understand, or to fit, use several smaller models instead!
+
+What we model is y-variable (PT). Also known as dependent variable or predicted variable.
+
+What we model on is x-variable (dementia). Also, independent variable, predictor.
+
+The Model consists of 2 parts: (i) the process model shows the relationship between mean y value and precise x value (linear or otherwise) and (ii) the likelihood (the stochastic model) shows, how we model the variation in the y-variable (but not in the x-variable).
+
+The full linear process model for the mean (remember, we want the mean to vary, but the sd to stay put in different levels of x) is then mu=a+bx, where a is the intercept and b is the slope. 
+
+This is nothing more complicated than the linear equation, which allows to place a straight line into 2D Cartesian space. It binds the x-variable (dementia) into mu, but in doing so, we have redefined the parameter mu through two new parameters, intercept (a) and slope (b). So, instead of mu, we will be fitting these two.
+
+$$y \sim N(\mu,\sigma)$$
+
+$$\mu = \alpha + \beta x$$
+
+or, equivalently $y \sim N(\alpha + \beta x,\sigma)$
+
+
+
+
+```{r}
+m_demementia_normal <- brm(postacute_therapy~dementia, data=d, file="models/m_demementia_normal")
+m_demementia_lognormal <- brm(postacute_therapy~dementia, data=d, family = lognormal(), file="models/m_demementia_lognormal")
+m_demementia_student <- brm(postacute_therapy~dementia, data=d, family = student(), file="models/m_demementia_student")
+m_demementia_normal_log <- brm(log(postacute_therapy)~dementia, data=d, file="models/m_demementia_normal_log")
+
+m_demementia_normal <- add_criterion(m_demementia_normal, "loo", file="models/m_demementia_normal")
+m_demementia_lognormal <- add_criterion(m_demementia_lognormal, "loo", file="models/m_demementia_lognormal")
+m_demementia_student <- add_criterion(m_demementia_student, "loo", file="models/m_demementia_student")
+loo_compare(m_demementia_normal, m_demementia_lognormal, m_demementia_student)
+```
+
+
+```{r}
+pp_check(m_demementia_normal)
+```
+
+```{r}
+pp_check(m_demementia_lognormal)
+```
+
+```{r}
+pp_check(m_demementia_student)
+```
+
+
+```{r}
+posterior_summary(m_demementia_student)
+```
+```{r}
+pp_check(m_demementia_normal_log)
+```
+
+
+
+```{r}
+conditional_effects(m_demementia_student)
+```
+
+```{r}
+conditional_effects(m_demementia_lognormal)
+```
+
+
+```{r}
+conditional_effects(m_demementia_normal)
+```
+
+
+```{r}
+d %>% group_by(dementia) %>% summarise(median= median(postacute_therapy), mean = mean(postacute_therapy))
+```
+
+
+```{r}
+ln_post <- posterior_samples(m_demementia_lognormal)
+ln_post <-ln_post %>% mutate(nondemented = exp(b_Intercept), 
+                             ES = exp(b_dementiayes),  
+                             demented = exp(b_Intercept + b_dementiayes))
+posterior_summary(ln_post)
+```
+mode: exp(mu - sigma squared)
+```{r}
+exp(1.86 - 0.9185**2) # no dementia
+exp(1.8696 - 0.2909 - 0.9185**2) #dementia
+```
+
+
+```{r}
+
+ln_post_exp <- posterior_samples(m_demementia_normal_log)
+ln_post_exp <-ln_post_exp %>% mutate(nondemented = exp(b_Intercept), 
+                             ES = exp(b_dementiayes),  
+                             demented = exp(b_Intercept + b_dementiayes))
+posterior_summary(ln_post_exp)
+```
+```{r}
+t.test(d$postacute_therapy~ d$dementia)
+```
+
+## mean PT hrs for the 2 groups: 3 models
+
+```{r}
+newdata <- tibble(crossing(dementia = c("no","yes")))
+m_ln_fitted <- fitted(m_demementia_lognormal, newdata = newdata) %>% 
+  as_tibble() %>%  
+  bind_cols(newdata)
+m_ln_fitted$indeks <- "lnorm"
+
+m_st_fitted <- fitted(m_demementia_student, newdata = newdata) %>% 
+  as_tibble() %>%  
+  bind_cols(newdata)
+m_st_fitted$indeks <- "student"
+
+m_norm_fitted <- fitted(m_demementia_normal, newdata = newdata) %>% 
+  as_tibble() %>%  
+  bind_cols(newdata)
+m_norm_fitted$indeks <- "normal"
+
+m_f <- bind_rows(m_ln_fitted, m_st_fitted, m_norm_fitted)
+
+ggplot(m_f, aes(factor(dementia), Estimate)) + 
+  geom_point()+ 
+  geom_errorbar(aes(ymin=`Q2.5`, ymax=`Q97.5`))+ 
+  facet_wrap(~indeks, nrow = 1) + 
+  ylab(NULL)+
+  theme_bw()
+```
+
+## ES for the difference of mean PT hrs for 3 models
+
+```{r}
+a <- posterior_epred(m_demementia_lognormal, newdata = newdata) %>% 
+  as_tibble() %>%  
+  transmute(ES = V2 - V1) %>% 
+  posterior_summary() %>% as_tibble()
+a$indeks <- "lnorm"
+
+b <- posterior_epred(m_demementia_student, newdata = newdata) %>% 
+  as_tibble() %>%  
+  transmute(ES = V2 - V1) %>% 
+  posterior_summary() %>% as_tibble()
+b$indeks <- "student"
+
+c <- posterior_epred(m_demementia_normal, newdata = newdata) %>% 
+  as_tibble() %>%  
+  transmute(ES = V2 - V1) %>% 
+  posterior_summary() %>% as_tibble()
+c$indeks <- "norm"
+
+abc <- bind_rows(a, b, c)
+
+
+ggplot(abc, aes(indeks, Estimate)) + geom_point()+ geom_errorbar(aes(ymin=`Q2.5`, ymax=`Q97.5`)) + theme_bw() + ggtitle("Effect of dementia on mean PT hrs")+
+  xlab("likelihood")
+```
+
+They are all wrong! 0.7 is the difference of medians!
+
+
+Lets free sigma.
+
+```{r}
+m_demementia_student_s <- brm(bf(postacute_therapy~dementia, sigma~dementia), data=d, family = student(), file="models/m_demementia_student_s")
+#add_criterion(m_demementia_student_s, "loo", file="models/m_demementia_student_s")
+l <- loo(m_demementia_student_s)
+l1 <- loo(m_demementia_student)
+loo_compare(l, l1)
+```
+
+```{r}
+conditional_effects(m_demementia_student_s)
+```
+
+
+```{r}
+conditional_effects(m_demementia_student_s, dpar= "sigma")
+```
+
