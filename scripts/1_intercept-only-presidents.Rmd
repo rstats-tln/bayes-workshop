@@ -22,6 +22,9 @@ library(brms)
 library(bayesplot)
 library(tidybayes)
 library(modelr)
+library(rstan)
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
 ```
 
 ## Getting data

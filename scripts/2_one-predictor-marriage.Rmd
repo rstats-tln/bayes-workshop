@@ -22,6 +22,9 @@ library(bayesplot)
 library(tidybayes)
 library(modelr)
 library(rethinking)
+library(rstan)
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
 ```
 
 ### Simple regression -- adding a predictor
