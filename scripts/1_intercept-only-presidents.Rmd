@@ -584,17 +584,43 @@ plot(h3, plot = FALSE)[[1]] +
 
 ### Individual work 
 
-Run models with different priors, using random sample N = 1?/2?/3/5 from presidents 
+Run models with different priors, using random sample N = 3 from presidents 
 data.
 
-Use, strong informative prior for sigma *normal(7.4, 1)*
+Use strong informative prior for sigma *normal(7.4, 1)*
 
 Set seed for reproducibility!
 ```{r}
-set.seed(20210920)
-data <- sample_n(president_heights, 3)
+set.seed(20211002)
+N <- 3
+data <- sample_n(president_heights, N)
 ```
 
 
-TEST IT!!!
+```{r}
+priors <- c(
+  prior("normal(178, 20)", class = "Intercept"),
+  prior("normal(7.4, 1)", class = "sigma")
+  )
+mod <- brm(
+  formula = f, 
+  data = data, 
+  family = gaussian(), 
+  prior = priors, 
+  chains = 3
+  )
+```
+
+```{r}
+summary(mod)
+```
+
+
+
+```{r}
+plot(mod)
+```
+
+
+
 
