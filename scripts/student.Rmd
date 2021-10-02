@@ -8,13 +8,15 @@ output: html_notebook
 ```{r}
 library(tidyverse)
 library(brms)
+library(here)
 ```
 
 ```{r}
-HF_data <- read_delim("data/HF_data.csv", 
+HF_data <- read_delim(here("data/HF_data.csv"), 
     ";", escape_double = FALSE, trim_ws = TRUE)
 HF_data <- HF_data %>% filter(county != "homeless")
-HF_data <- HF_data %>% select(postacute_therapy, dementia)
+HF_data <- HF_data %>% select(postacute_therapy, dementia) %>% 
+  mutate(dementia = if_else(dementia == 0, "No", "Yes"))
 HF_data
 ```
 
@@ -67,14 +69,14 @@ or, equivalently $y \sim N(\alpha + \beta x,\sigma)$
 
 
 ```{r}
-m_demementia_normal <- brm(postacute_therapy~dementia, data=d, file="models/m_demementia_normal")
-m_demementia_lognormal <- brm(postacute_therapy~dementia, data=d, family = lognormal(), file="models/m_demementia_lognormal")
-m_demementia_student <- brm(postacute_therapy~dementia, data=d, family = student(), file="models/m_demementia_student")
-m_demementia_normal_log <- brm(log(postacute_therapy)~dementia, data=d, file="models/m_demementia_normal_log")
+m_demementia_normal <- brm(postacute_therapy~dementia, data=d, file=here("models/m_demementia_normal"))
+m_demementia_lognormal <- brm(postacute_therapy~dementia, data=d, family = lognormal(), file=here("models/m_demementia_lognormal"))
+m_demementia_student <- brm(postacute_therapy~dementia, data=d, family = student(), file=here("models/m_demementia_student"))
+m_demementia_normal_log <- brm(log(postacute_therapy)~dementia, data=d, file=here("models/m_demementia_normal_log"))
 
-m_demementia_normal <- add_criterion(m_demementia_normal, "loo", file="models/m_demementia_normal")
-m_demementia_lognormal <- add_criterion(m_demementia_lognormal, "loo", file="models/m_demementia_lognormal")
-m_demementia_student <- add_criterion(m_demementia_student, "loo", file="models/m_demementia_student")
+m_demementia_normal <- add_criterion(m_demementia_normal, "loo", file=here("models/m_demementia_normal"))
+m_demementia_lognormal <- add_criterion(m_demementia_lognormal, "loo", file=here("models/m_demementia_lognormal"))
+m_demementia_student <- add_criterion(m_demementia_student, "loo", file=here("models/m_demementia_student"))
 loo_compare(m_demementia_normal, m_demementia_lognormal, m_demementia_student)
 ```
 
@@ -209,7 +211,7 @@ They are all wrong! 0.7 is the difference of medians!
 Lets free sigma.
 
 ```{r}
-m_demementia_student_s <- brm(bf(postacute_therapy~dementia, sigma~dementia), data=d, family = student(), file="models/m_demementia_student_s")
+m_demementia_student_s <- brm(bf(postacute_therapy~dementia, sigma~dementia), data=d, family = student(), file=here("models/m_demementia_student_s"))
 #add_criterion(m_demementia_student_s, "loo", file="models/m_demementia_student_s")
 l <- loo(m_demementia_student_s)
 l1 <- loo(m_demementia_student)
