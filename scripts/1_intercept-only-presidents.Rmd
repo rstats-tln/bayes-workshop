@@ -156,13 +156,15 @@ priors <- c(
   prior("normal(7.6, 2)", class = "sigma")
   )
 mod1 <- brm(
- formula = f, 
+ formula = height_cm ~ 1, 
  data = president_heights, 
  family = gaussian(), 
  prior = priors,
  chains = 3, 
+ iter = 2400,
  file = here("models/height_cm~1_normal(0, 200)_Intercept_normal(7.6, 2)_sigma"),
- sample_prior = "yes"
+ sample_prior = "yes",
+ file_refit = "on_change"
  )
 ```
 
@@ -208,6 +210,15 @@ More condensed and tidy version of model summary can be generated with
 posterior_summary(mod1)
 ```
 
+```{r}
+mod1 <- brm(height_cm ~ 1, data = president_heights)
+```
+
+```{r}
+summary(mod1)
+```
+
+
 #### Posterior samples
 
 Let's extract posterior samples from our model object.
@@ -223,6 +234,12 @@ In both cases the output is identical.
 ```{r}
 (samples1 <- as_tibble(posterior_samples(mod1)))
 ```
+
+```{r}
+as_draws_df(mod1)
+?as_draws_df
+```
+
 
 Now we can visualize prior and posterior distributions of Intercept side-by-side:
 
@@ -247,8 +264,8 @@ height is 7.6 cm.
 
 ```{r}
 priors <- c(
-  prior("normal(178, 20)", class = "Intercept"),
-  prior("normal(7.6, 2)", class = "sigma")
+  prior("normal(178, 2)", class = "Intercept"),
+  prior("normal(7, 1)", class = "sigma")
   )
 mod2 <- brm(
   formula = f, 
@@ -256,7 +273,7 @@ mod2 <- brm(
   family = gaussian(), 
   prior = priors, 
   chains = 3, 
-  file = here("models/height_cm~1_normal(178, 20)_Intercept_normal(7.6, 2)_sigma"), 
+  file = here("models/height_cm~1_normal(178, 2)_Intercept_normal(7, 1)_sigma"), 
   sample_prior = "yes"
   )
 summary(mod2)
@@ -276,6 +293,12 @@ samples2 %>%
   labs(title = str_c("Good informative prior: ", mod2$prior[1,1])) + 
   facet_wrap(~name, ncol = 1, scales = "free_y")
 ```
+
+```{r}
+m <- lm(f, president_heights)
+m
+```
+
 
 #### Testing priors for Intercept -- bad informative prior
 
@@ -352,8 +375,8 @@ reasonable and provides posteriors on expected scale.
 
 ```{r}
 priors <- c(
-  prior("normal(178, 20)", class = "Intercept"),
-  prior("normal(7.4, 2)", class = "sigma")
+  prior("normal(178, 2)", class = "Intercept"),
+  prior("normal(7, 1)", class = "sigma")
   )
 mod2.1 <- brm(
   formula = f, 
@@ -371,7 +394,7 @@ Generating posterior predictive samples/plot from prior-only model.
 
 ```{r}
 set.seed(12) 
-pp_check(mod2.1, nsamples = 10)
+pp_check(mod2.1, nsamples = 100)
 ```
 
 Chosen prior seems to generate reasonable values.
@@ -380,6 +403,11 @@ distribution.
 
 Run `pp_check()` multiple times to get an idea where samples generated from 
 prior land.
+
+
+
+
+
 
 We can use plotting functions from *bayesplot* package to generate 
 diagnostic plots for summary statistics of prior-predictive samples.
@@ -394,25 +422,25 @@ yrep <- posterior_predict(mod2.1)
 We can check mean and max values in replications:
 **Mean**
 ```{r}
-ppc_stat(y, yrep, stat = "mean", binwidth = 5)
+ppc_stat(y, yrep, stat = "mean", binwidth = 1)
 ```
 
 **Max**
 ```{r}
-ppc_stat(y, yrep, stat = "max", binwidth = 5)
+ppc_stat(y, yrep, stat = "max", binwidth = 1)
 ```
 
 Or look at custom summary statistics, e.g. quantiles
 25% quantile
 ```{r}
 q25 <- function(x) quantile(x, 0.25) 
-ppc_stat(y, yrep, stat = "q25", binwidth = 5)
+ppc_stat(y, yrep, stat = "q25", binwidth = 1)
 ```
 
 75% quantile
 ```{r}
 q75 <- function(x) quantile(x, 0.75)
-ppc_stat(y, yrep, stat = "q75", binwidth = 5)
+ppc_stat(y, yrep, stat = "q75", binwidth = 1)
 ```
 
 Plot central quantile posterior interval estimates
@@ -452,6 +480,9 @@ samples2 %>%
   cor()
 ```
 
+```{r}
+cor(select(samples2, b_Intercept, sigma))
+```
 
 ### Bayesian estimation vs OLS
 
@@ -462,7 +493,7 @@ Let's visualize this difference:
 set.seed(1)
 samples2 <- as_tibble(posterior_samples(mod2))
 a <- rnorm(3000, samples2$b_Intercept, samples2$sigma)
-b <- rnorm(3000, median(samples2$b_Intercept), median(samples2$sigma))
+b <- rnorm(3000, mean(samples2$b_Intercept), mean(samples2$sigma))
 sd(a)
 sd(b)
 ```
