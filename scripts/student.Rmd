@@ -16,7 +16,7 @@ HF_data <- read_delim(here("data/HF_data.csv"),
     ";", escape_double = FALSE, trim_ws = TRUE)
 HF_data <- HF_data %>% filter(county != "homeless")
 HF_data <- HF_data %>% select(postacute_therapy, dementia) %>% 
-  mutate(dementia = if_else(dementia == 0, "No", "Yes"))
+  mutate(dementia = if_else(dementia == 0, "no", "yes"))
 HF_data
 ```
 
@@ -151,7 +151,7 @@ t.test(d$postacute_therapy~ d$dementia)
 ## mean PT hrs for the 2 groups: 3 models
 
 ```{r}
-newdata <- tibble(crossing(dementia = c("no","yes")))
+newdata <- tibble(crossing(dementia = c("no", "yes")))
 m_ln_fitted <- fitted(m_demementia_lognormal, newdata = newdata) %>% 
   as_tibble() %>%  
   bind_cols(newdata)
