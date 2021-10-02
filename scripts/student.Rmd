@@ -15,7 +15,8 @@ library(here)
 HF_data <- read_delim(here("data/HF_data.csv"), 
     ";", escape_double = FALSE, trim_ws = TRUE)
 HF_data <- HF_data %>% filter(county != "homeless")
-HF_data <- HF_data %>% select(postacute_therapy, dementia)
+HF_data <- HF_data %>% select(postacute_therapy, dementia) %>% 
+  mutate(dementia = if_else(dementia == 0, "No", "Yes"))
 HF_data
 ```
 
