@@ -1,0 +1,116 @@
+---
+title: "Hamiltonian Monte Carlo"
+author: "Taavi Päll and Ülo Maiväli"
+date: "2021-10-16"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Loading some required libraries
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(here)
+library(brms)
+library(bayesplot)
+library(tidybayes)
+library(modelr)
+library(lubridate)
+library(rstan)
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+```
+
+## MCMC process
+
+Common illustrations of how Markov Chain Monte Carlo process works involves 
+islands nation and politicians (see Kruschke and McElreath).
+
+
+```{r echo=FALSE, out.width='70%'}
+knitr::include_graphics(here("figs/islands.png"))
+```
+
+
+Let's imagine that we have a nation that lives on 10 islands, each 
+island has population proportional to its size.
+
+During evergoing campaigning, politician needs to visit all islands, but must 
+make proportionally more visits to bigger islands.
+
+To achieve this, politician's adviser has suggested following clever strategy.    
+
+1. Let's say that each week politician needs to decide whether to move to 
+randomly selected next island or stay.
+
+2. If next island has bigger population, then politician moves to that island. 
+If selected island has smaller population, adviser fills bag with black (move) and 
+white peas (stay) proportional to smaller island population to current island. 
+Politician picks one pea from the bag and if it's black then moves.
+
+```{r}
+set.seed(9)
+
+weeks <- 1e4
+islands <- rep(0, weeks) 
+current   <- 10
+
+for (i in 1:weeks) {
+  
+  # record current position 
+  islands[i] <- current
+  
+  # choose next island
+  proposal <- sample(1:10, size = 1)
+  
+  # move?
+  prob_move <- proposal / current
+  current <- ifelse(runif(1) < prob_move, proposal, current)
+  
+}  
+```
+
+
+Islands visited during first 100 weeks, seems random:
+```{r}
+tibble(week = 1:weeks,
+       islands) %>%
+  head(100) %>% 
+  ggplot(aes(x = week, y = islands)) +
+  geom_point()
+```
+
+Patterns emerge in the long term. Island visits through history is proportional to island population:
+```{r}
+tibble(islands) %>%
+  ggplot(aes(x = islands)) +
+  geom_histogram(binwidth = 1) +
+  scale_x_continuous(breaks = 1:10) +
+  labs(y = "number of visits")
+```
+
+> From this simulation, key property of MCMC process emerges: this algorithm needs 
+to know only the value of current island and value of new island to 
+make a move, resulting in long-run island visits proportional to their size.
+
+
+In real applications, the goal is not to help an politician schedule his campaign, 
+but to draw samples from an unknown target distribution, like a posterior 
+probability distribution.
+
++ The 'islands' in our objective are parameter values.
++ The 'population sizes' in our objective are the posterior probabilities at 
+each parameter value.
++ The 'weeks' in our objective are samples taken from the joint posterior of 
+the parameters in the model.
+
+
+
+
