@@ -1,0 +1,152 @@
+---
+title: "Model checking and comparison"
+author: "TP"
+date: "14 10 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library("tidyverse")
+library("here")
+library("brms")
+library("rstan")
+library("bayesplot")
+library("loo")
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+```
+
+## Data
+
+Here we use *roaches* data from **rstanarm** R package. 
+
+We want to compare the efficacy of a certain pest management system at reducing the number of roaches in urban apartments.
+
+The experiment was as follows  -- treatment and control were applied to 160 and 104 apartments, respectively, and the outcome measurement y in each apartment was the number of roaches caught in a set of traps. Different apartments had traps for different numbers of days
+
+y is the number of roaches caught in a set of traps
+roach1 is the pre-treatment number of roaches
+senior is indicator whether building was for senior citizens
+exposure2 is exposure indicator and log(exposure2) should be used as weight
+
+```{r}
+roaches <- read_csv(here("data/roaches.csv"))
+roaches$roach1 <- roaches$roach1 / 100
+roaches
+```
+
+### Fit Poisson model
+
+```{r}
+get_prior(y ~ roach1 + treatment + senior + offset(log(exposure2)), roaches, family = poisson(link = "log"))
+priors <- c(prior("normal(0, 2.5)", class =  "b"), prior("normal(0, 5)", class = "Intercept"))
+fit1 <-
+  brm(
+    y ~ roach1 + treatment + senior + offset(log(exposure2)),
+    data = roaches,
+    family = poisson(link = "log"),
+    prior = priors,
+    chains = 3,
+    file = here("models/y ~ roach1 + treatment + senior + offset(log(exposure2))")
+  )
+```
+
+
+```{r}
+summary(fit1)
+```
+
+### Using the loo package for model checking and comparison
+
+```{r}
+loo1 <- loo(fit1, save_psis = TRUE)
+```
+
+loo gives us warnings about the Pareto diagnostics, which indicate that for some observations the leave-one-out posteriors are different enough from the full posterior that importance-sampling is not able to correct the difference. 
+
+We can see more details by printing the loo object.
+
+```{r}
+print(loo1)
+```
+
+
+The table shows us a summary of Pareto k diagnostic, which is used to assess the reliability of the estimates. Since we have some k > 1, we are not able to compute an estimate for the Monte Carlo standard error (SE) of the expected log predictive density (elpd_loo) and NA is displayed.
+
+In this case the elpd_loo estimate should not be considered reliable. 
+
+If we had a well-specified model we would expect the estimated effective number of parameters (p_loo) to be smaller than or similar to the total number of parameters in the model.
+
+Here p_loo is almost 300, which is about 70 times the total number of parameters in the model, indicating severe model misspecification.
+
+
+More info can be found from pareto-k-diagnostic help page:
+```{r}
+help("pareto-k-diagnostic")
+```
+
+#### Plotting Pareto k diagnostics
+
+This plot shows individual Pareto k values in same order as the original values.
+ 
+```{r}
+plot(loo1)
+```
+
+We can see that there seems to be a block of data that is somewhat easier to predict in region 100-150, but still there are some high k values.
+
+### Try alternative models
+
+```{r}
+fit2 <- update(fit1, family = negbinomial())
+```
+
+```{r}
+loo2 <- loo(fit2, save_psis = TRUE, cores = 2)
+```
+
+We still have one bad k.
+
+```{r}
+print(loo2)
+```
+
+```{r}
+plot(loo2)
+```
+
+Each time the model is refit, one of the observations with a high k value is omitted and the LOO calculations are performed exactly for that observation. 
+
+The results are then recombined with the approximate LOO calculations already carried out for the observations without problematic k values:
+
+```{r}
+if (any(pareto_k_values(loo2) > 0.7)) {
+  fit2 <- add_criterion(fit2, "loo", reloo = TRUE)
+  loo2 <- loo(fit2, save_psis = TRUE)
+}
+```
+
+
+```{r}
+print(loo2)
+```
+
+We can see that the Monte Carlo SE is small compared to the other uncertainties.
+
+On the other hand, p_loo is over 6 and still a bit higher than the total number of parameters in the model. This indicates that there is almost certainly still some degree of model misspecification, but this is much better than the p_loo estimate for the Poisson model.
+
+
+### Comparing the models on expected log predictive density
+
+
+```{r}
+loo_compare(loo1, loo2)
+```
+
+
+We can see than fit2 is better than fit1 more than three SE.
+
