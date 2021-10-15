@@ -1,0 +1,171 @@
+---
+title: "Autoregressive model"
+author: "TP"
+date: "15 10 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+A time series is a sequence of measurements of the same variables made over time. 
+Usually the measurements are made at evenly spaced times -- for example, weekly, monthly or yearly. 
+An autoregressive model is a model where a value from a time series is regressed on previous values from same time series. 
+
+$$y_t=\alpha+\beta_1 y_{t-1}+\epsilon_t$$
+
+
+In this regression model, the response variable from previous time period has become the predictor. 
+
+The order of an autoregression is the number of immediately preceding values in the series that are used to predict the value at the present time. 
+
+So, the preceding model is a first-order autoregression, written as AR(1).
+
+If we want to predict y using two previous time periods (y_t-1, y_t-2), the model will become:
+
+$$y_t=\alpha+\beta_1 y_{t-1}+\beta_2 y_{t-2}+\epsilon_t$$
+
+
+Let's refit our COVID-19 prevalence model using AR(1).
+
+
+## Loading libraries
+
+```{r}
+library(tidyverse)
+library(here)
+library(brms)
+library(bayesplot)
+library(tidybayes)
+library(modelr)
+library(lubridate)
+library(rstan)
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+```
+
+
+## Data
+
+COVID19 data are again from "The study on the prevalence of the coronavirus in Estonia" <https://www.ut.ee/en/research/study-prevalence-coronavirus-estonia>
+
+```{r, out.width=400}
+knitr::include_graphics("https://www.ut.ee/sites/default/files/www_ut/teadus/seirelaine-tulemused-muudetud-jrejest.png")
+```
+
+
+```{r}
+(covid19 <- read_csv(here("data/covid19.csv")))
+```
+
+Let's convert wave to factor.
+```{r}
+(covid <- covid19 %>% 
+   mutate(
+     wave = as.factor(wave),
+     start_day = yday(start_date),
+     end_day = yday(end_date),
+     study_period = end_day - start_day,
+     time = end_day - min(end_day),
+     prop_pos = positive / tested
+   )
+ )
+```
+
+
+
+```{r}
+covid %>% 
+  ggplot() +
+  geom_point(aes(end_date, prop_pos)) +
+  labs(x = "Study wave end date", y = "Proportion of SARS-CoV-2\npositive individuals")
+```
+
+## Fitting model with AR(1) term
+
+
+```{r}
+get_prior(formula = positive | trials(tested) ~ ar(time, p = 1),
+  data = covid,
+  family = binomial())
+priors <- c(
+  prior("normal(0.5, 0.1)", class = "ar"),
+  prior("exponential(1)", class = "sderr"),
+  prior("normal(-4.2, 0.5)", class = "Intercept")
+)
+mod1 <- brm(
+  formula = positive | trials(tested) ~ ar(time, p = 1),
+  data = covid,
+  family = binomial(),
+  prior = priors,
+  chains = 3,
+  file = here("models/positive | trials(tested) ~ ar(time, p = 1)"),
+  file_refit = "on_change",
+  save_pars = save_pars(all = TRUE)
+)
+```
+
+
+```{r}
+summary(mod1)
+```
+
+
+```{r}
+mod1 <- update(mod1, control = list(adapt_delta = 0.99))
+```
+
+After refitting with adapt_delta=0.99, the warning has gone away:
+```{r}
+summary(mod1)
+```
+
+
+```{r}
+plot(mod1)
+```
+
+We cannot use `epred_draws` etc functions to retrieve posterior samples from this type of model, because something's always broken, but we can use good old fitted function:
+
+```{r}
+fitted(mod1,
+       summary = FALSE,
+       nsamples = 100) %>% 
+  as_tibble() %>% 
+  set_names(covid$wave) %>% 
+  mutate(.iter = row_number()) %>% 
+  pivot_longer(cols = matches("\\d"), names_to = "wave") %>% 
+  left_join(covid %>% select(wave, time) %>% distinct()) %>% 
+  ggplot(aes(x = time)) +
+  geom_line(aes(y = value, group = .iter), alpha = 0.1, size = 1/3) +
+  geom_point(data = covid, aes(y = positive)) +
+  labs(y = "Number of positive cases", caption = "Points denote original data.")
+```
+
+
+Or using `stat_lineribbon` geom from **bayesplot**:
+```{r}
+fitted(mod1,
+       summary = FALSE,
+       nsamples = 1000) %>% 
+  as_tibble() %>% 
+  set_names(covid$wave) %>% 
+  mutate(.iter = row_number()) %>% 
+  pivot_longer(cols = matches("\\d"), names_to = "wave") %>% 
+  left_join(covid %>% select(wave, time) %>% distinct()) %>% 
+  ggplot() +
+  stat_lineribbon(aes(time, value), alpha = 1/5) +
+  geom_point(data = covid, aes(x = time, y = positive)) +
+  labs(x = "Days from the end of wave 12 study", y = "Number of positive cases", caption = "Points denote original data.")
+```
+
+Model looks good. However, loo is absolutely not happy with the model.
+
+
+## References
+
+- Find out more how to fit autoregressive models using classical prey-predator data <https://bookdown.org/content/4857/generalized-linear-madness.html#lynx-lessons-bonus-practice-with-the-autoregressive-model>
+
+
