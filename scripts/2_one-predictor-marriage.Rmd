@@ -125,7 +125,8 @@ mod4.0 <- brm(
   prior = priors,
   chains = 3,
   file = here("models/Divorce~Marriage_prior_only"),
-  sample_prior = "only"
+  sample_prior = "only",
+  file_refit = "on_change"
 )
 ```
 
@@ -169,9 +170,12 @@ samples4.0 <- as_tibble(posterior_samples(mod4.0)) %>%
 Here we can see a sample of plausible regression lines, based on our prior-only model:
 ```{r}
 ggplot() +
-  geom_point(data = divorce, aes(Marriage, Divorce)) +
+  # geom_point(data = divorce, aes(Marriage, Divorce)) +
   geom_abline(data = samples4.0, aes(slope = b_Marriage, intercept = b_Intercept), size = 0.3, alpha = 0.3) +
   labs(x = "Marriage rate", y = "Divorce rate") +
+  scale_x_continuous(limits = c(-3, 3)) +
+  scale_y_continuous(limits = c(-3, 3)) +
+  coord_fixed() +
   theme_classic()
 ```
 
@@ -345,6 +349,7 @@ Howell data can be loaded like so:
 data(Howell1)
 ```
 
+
 ```{r}
 
 ```
@@ -485,6 +490,7 @@ Once we know median age at marriage, there is little or no additional predictive
 power in also knowing the rate of marriage. This does not mean that there is 
 no value in knowing marriage rate, besides when median age at marriage is 
 not available, then marriage would be very valuable.
+
 The association between marriage rate and divorce rate is spurious, 
 caused by the influence of age of marriage on both marriage rate and divorce rate.
 
@@ -496,9 +502,11 @@ assess multiple regression model. "None of these techniques is suitable for all
 jobs, and most do not generalize beyond linear regression."
 
 - **Predictor residual plots** show the outcome against residual predictor values to better understanding the statistical model
+
 - **Counterfactual plots** show the implied predictions for imaginary 
 experiments (generated data) to explore the causal implications of manipulating 
 one or more variables.
+
 - **Posterior prediction plots** show model-based predictions against raw data, 
 or otherwise display the error in prediction to check fit and assessing predictions.
 
