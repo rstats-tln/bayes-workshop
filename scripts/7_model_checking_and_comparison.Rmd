@@ -9,6 +9,31 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+
+Bayesian workflow includes fitting many models and, naturally, we would like to evaluate and compare these models.
+Without waiting for the new data, we can compare predictions on the observed data, but as we have already used this data to fit our models, the result is overly optimistic about our model performance.
+In cross-validation (CV) proportion of the data is left out from model fitting and can be used later to assess model performance.
+When prediction is not the goal of model building, CV can be means to assess generalization from one part of the data to another part.
+
+There are different CV strategies, but in all cases the model is refitted when some part of the data is left out.
+CV removes the over-fitting problem arising when model is fitted and evaluated on same exact data.
+
+# Leave-one-out CV
+
+In case leave-one-out CV model is fitted *n* times by leaving each time out one observation.
+Obviously, this can be computation intensive with large data.
+
+As described in "Regression and Other Stories" by A. Gelman et al., Bayesian approach to speed-up CV takes advantage of Bayesian inference, where posterior distribution can be written as the prior distribution multiplied by likelihood.
+
+If the observations are conditionally independent, then the likelihood is the product of likelihoods of individual data points: $$p(\theta\vert y) \varpropto p(\theta) \prod^n_{i=1}p(y_i\vert\theta)$$
+
+In this expression, leaving out observation *i* is equivalent to multiplying the posterior distribution by the factor $$1/p(y_i\vert\theta)$$
+
+
+The LOO posterior excluding point *i* then becomes $$p(\theta\vert y_{-i}) = p(\theta)/p(y_i\vert\theta)$$, and the LOO distribution is then computed by taking the posterior simulations for $\theta$ obtained from `stan_glm` and giving each simulation a weight of $$1/p(y_i\vert\theta)$$
+This set of weighed simulations is used to get predictive distribution on $y_i$, the held-out data point. Apparently, as using the raw weights can be noisy, the `loo` function smooths them before doing the computation.
+
+
 ```{r}
 library("tidyverse")
 library("here")
@@ -19,6 +44,8 @@ library("loo")
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 ```
+
+To see how this Bayesian LOO works, we need to fit some models.
 
 ## Data
 
@@ -75,14 +102,21 @@ print(loo1)
 ```
 
 
-The table shows us a summary of Pareto k diagnostic, which is used to assess the reliability of the estimates. Since we have some k > 1, we are not able to compute an estimate for the Monte Carlo standard error (SE) of the expected log predictive density (elpd_loo) and NA is displayed.
+The table shows us a summary of Pareto k diagnostic (Pareto shape parameter k estimated for each observation can be used as a measure of the observation's influence on posterior distribution of the model), which is used to assess the reliability of the estimates. 
+
+Since we have some k > 1, we are not able to compute an estimate for the Monte Carlo standard error (SE) of the expected log predictive density (elpd_loo) and NA is displayed.
+
+- elpd_loo is the estimated log score along with a SE
 
 In this case the elpd_loo estimate should not be considered reliable. 
 
-If we had a well-specified model we would expect the estimated effective number of parameters (p_loo) to be smaller than or similar to the total number of parameters in the model.
+- p_loo is the estimated "effective number of parameters" in the model
+
+Our model has 4 parameters. If we had a well-specified model we would expect the estimated effective number of parameters (p_loo) to be smaller than or similar to the total number of parameters in the model.
 
 Here p_loo is almost 300, which is about 70 times the total number of parameters in the model, indicating severe model misspecification.
 
+- looic is the LOO information criterion, -2 * elpd_loo and shows model deviance
 
 More info can be found from pareto-k-diagnostic help page:
 ```{r}
@@ -149,4 +183,23 @@ loo_compare(loo1, loo2)
 
 
 We can see than fit2 is better than fit1 more than three SE.
+
+
+### Widely applicable information criterion (WAIC)
+
+Other model fit evaluation criteria ("loo", "waic", "kfold", "loo_subsample", "bayes_R2" (Bayesian R-squared), "loo_R2" (LOO-adjusted R-squared), and "marglik" (log marginal likelihood)) can be added using `add_criterion` function or their aliases (see help Details).
+
+
+```{r}
+?add_criterion
+```
+
+
+
+# References
+
+- Using the loo package (version >= 2.0.0)
+ <https://mc-stan.org/loo/articles/loo2-example.html>
+- Holdout validation and K-fold cross-validation of Stan programs with the loo package <https://mc-stan.org/loo/articles/loo2-elpd.html>
+- Practical Bayesian model evaluation using leave-one-out cross-validation and WAIC <http://www.stat.columbia.edu/~gelman/research/unpublished/loo_stan.pdf>
 
