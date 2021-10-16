@@ -255,6 +255,9 @@ plot(conditional_effects(mod1.2), ask = FALSE, points = TRUE)
 
 Let's see what prediction looks like.
 ```{r}
+# seq(min(covid_deaths$dateRep) - days(30), min(covid_deaths$dateRep) - 1, by = "days")
+
+
 time <- c(covid_deaths$dateRep, seq(today(), today() + days(30), by = "days")) %>% 
   yday()
 ```

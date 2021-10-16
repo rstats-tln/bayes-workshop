@@ -132,6 +132,7 @@ ruggedness %>%
   labs(x = "Ruggedness", y = "log GDP", subtitle = "intercept ~ normal(1, 1)\nb ~ normal(0, 1)") +
   theme_classic()
 ```
+
 ### Prior-only -- more stringent priors
 
 Maximum possible change in log GDP is 0.6 within terrain ruggedness range in 
@@ -308,7 +309,7 @@ samples1.4 %>%
   mean_qi() %>% 
   ggplot(aes(x = rugged)) +
   geom_point(aes(y = log_gdp)) +
-  geom_smooth(aes(y = .epred), method = "lm", se = FALSE) +
+  geom_smooth(aes(y = .epred)) +
   geom_ribbon(aes(ymin = .upper, ymax = .lower), alpha = 1/5) +
   facet_wrap(~continent, scales = "free_y")
 ```
