@@ -118,8 +118,8 @@ each parameter value.
 + The 'weeks' in our objective are samples taken from the joint posterior of 
 the parameters in the model.
 
-Metropolis algorithm works when proposing a jump from A to B is equal to 
-proposing jump from B to A (a **symmetric proposal**).
+Metropolis algorithm works when probability proposing a jump from A to B is equal to 
+probability of proposing jump from B to A (a **symmetric proposal**).
 
 ### Metropolis-Hastings algorithm
 
@@ -177,7 +177,7 @@ y <- c(39, 41, 45)
 N <- 10000
 mu <- numeric(N)
 for (i in 1:(N-1)) {
-  proposal <- mu[i] + rnorm(1) 
+  proposal <- mu[i] + rnorm(1, 0, 1) 
   r <- p(proposal) / p(mu[i])
   accept <- rbinom(1, 1, min(1, r))
   mu[i+1] <- if (accept) proposal else mu[i]
@@ -233,7 +233,7 @@ for (i in 1:(N-1)) {
   accept <- rbinom(1, 1, min(1, r))
   mu[i+1] <- if (accept) proposal else mu[i]
 }
-plot(mu, type = "l", main = "y <- c(39, 41, 45); sigma = 15")
+plot(mu, type = "l", main = "y <- c(39, 41, 45); sigma = 200")
 ```
 
 Acceptance rate
@@ -399,7 +399,7 @@ Q$q <- c(-0.1, 0.2) # initial values
 pr <- 0.3
 plot(NULL, ylab = "muy", xlab = "mux", xlim = c(-pr, pr), ylim = c(-pr, pr))
 step <- 0.03
-L <- 11 # 0.03/28 for U-turns --- 11 for working example
+L <- 28 # 0.03/28 for U-turns --- 11 for working example
 n_samples <- 4
 path_col <- rethinking::col.alpha("black", 0.5)
 points(Q$q[1], Q$q[2], pch = 4, col = "black" )
@@ -609,7 +609,7 @@ summary(m10)
 This is our "good" model:
 
 ```{r}
-mcmc_parcoord(as.array(m), np = nuts_params(m), pars = c("b_Intercept", "b_age", "sigma"), regex_pars = "county") + xaxis_text(angle = 90, hjust = 1, vjust = 0.5)
+mcmc_parcoord(as.array(m), np = nuts_params(m), pars = c("b_Intercept", "sigma"), regex_pars = "county") + xaxis_text(angle = 90, hjust = 1, vjust = 0.5)
 ```
 
 
@@ -617,7 +617,7 @@ If we print out our pathological model, we can see bunch of red lines indicating
 divergent transitions. But whats wrong?
 
 ```{r}
-mcmc_parcoord(as.array(m10), np = nuts_params(m10), pars = c("b_Intercept", "b_age", "sigma"), regex_pars = "county") + xaxis_text(angle = 90, hjust = 1, vjust = 0.5)
+mcmc_parcoord(as.array(m10), np = nuts_params(m10), pars = c("b_Intercept", "sigma"), regex_pars = "county") + xaxis_text(angle = 90, hjust = 1, vjust = 0.5)
 ```
 
 
@@ -681,7 +681,4 @@ This is controlled through a maximum depth parameter max_treedepth. When the max
 - Diagnosing Biased Inference with Divergences <https://betanalpha.github.io/assets/case_studies/divergences_and_bias.html>
 
 - HMC Algorithm Parameters <https://mc-stan.org/docs/2_18/reference-manual/hmc-algorithm-parameters.html>
-
-
-
 
