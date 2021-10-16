@@ -7,12 +7,15 @@ output:
 
 ```{r}
 library(tidyverse)
+library(here)
 library(brms)
 library(tidybayes)
 options(mc.cores = parallel::detectCores())
 ```
 
-Multilevel:
+## Multilevel modeling
+
+Model:
 
 y - pupils score
 sch - school ID
@@ -45,7 +48,7 @@ $$y_i \sim N(\mu_j, \sigma_{y[j]}) ~ or ~ bf(y \sim 0 + sch, sigma \sim 0 + sch)
 
 
 + Multilevel models assume exhangeable non-ordinal grouping structures in the data (groups come as a random sample from a population of groups). This meta-population of groups is also modelled on data.
- 
+
 + they assume more than one source of variation
 
 + they assume intra-group correlated data (not independent data)
@@ -66,57 +69,73 @@ $$y_i \sim N(\mu_j, \sigma_{y[j]}) ~ or ~ bf(y \sim 0 + sch, sigma \sim 0 + sch)
 
 + they allow to more precisely estimate these regression coefs themselves, especially if N differs from group to group.
 
-## start by a simulation
+## Start by a simulation
 
 ```{r}
-gr <- c(rep("A", times=1), 
-        rep("B", times=2), 
-        rep("C", times=3), 
-        rep("D", times=4), 
-        rep("E", times=5), 
-        rep("F", times=6), 
-        rep("G", times=7), 
-        rep("H", times=8),
-        rep("I", times=9),
-        rep("J", times=10),
-        rep("exp", times=8))
+gr <- c(rep("A", times = 1), 
+        rep("B", times = 2), 
+        rep("C", times = 3), 
+        rep("D", times = 4), 
+        rep("E", times = 5), 
+        rep("F", times = 6), 
+        rep("G", times = 7), 
+        rep("H", times = 8),
+        rep("I", times = 9),
+        rep("J", times = 10),
+        rep("exp", times = 8))
 
 set.seed(1)
 value <- c(rlnorm(55), rlnorm(8, 1.5))
 
-data1 <- data.frame(gr=gr, value=value)
+data1 <- data.frame(gr, value)
 
-m_sim1 <- brm(value~ 0 + gr, data=data1, family = lognormal(), file = "m_sim1")
-m_sim2 <- brm(value~ 0 + (1|gr), data=data1, family = lognormal(), file = "m_sim2")
-m_sim3 <- brm(bf(value~ 0 + (1|gr), sigma~ 0 + (1|gr)), 
-              data=data1, family = lognormal(), file = "m_sim3")
-m_sim4 <- brm(bf(value~ 0 + (1|id|gr), sigma~ 0 + (1|id|gr)), 
-              data=data1, family = lognormal(), file = "m_sim4")
+m_sim1 <- brm(value ~ 0 + gr, data = data1, family = lognormal(), file = here("models/m_sim1"))
+m_sim2 <- brm(value ~ 0 + (1 | gr), data = data1, family = lognormal(), file = here("models/m_sim2"))
+m_sim3 <- brm(bf(value ~ 0 + (1 | gr), sigma ~ 0 + (1 | gr)), 
+              data = data1, family = lognormal(), file = here("models/m_sim3"))
+m_sim4 <- brm(bf(value ~ 0 + (1 | id | gr), sigma ~ 0 + (1 | id | gr)), 
+              data = data1, family = lognormal(), file = here("models/m_sim4"))
 ```
 
 
 ```{r}
 posterior_summary(m_sim1)
 ```
+
+
 ```{r}
 posterior_summary(m_sim2)
 ```
+
 ```{r}
 posterior_summary(m_sim3)
 ```
+
+
 ```{r}
 posterior_summary(m_sim4)
 ```
 
 
 ```{r}
-m_sim2p <- posterior_summary(m_sim2) %>% exp() %>% as.data.frame() %>% rownames_to_column() %>% filter(str_detect(rowname, "r_gr") ) 
-m_sim2p$rowname <- m_sim2p$rowname %>%  str_replace_all("r_gr\\[", "")
-m_sim2p$rowname <- m_sim2p$rowname %>%  str_replace_all(",Intercept\\]", "")
+m_sim2p <- posterior_summary(m_sim2) %>% 
+  exp() %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>% 
+  filter(str_detect(rowname, "r_gr") ) 
+m_sim2p$rowname <- m_sim2p$rowname %>% 
+  str_replace_all("r_gr\\[", "")
+m_sim2p$rowname <- m_sim2p$rowname %>% 
+  str_replace_all(",Intercept\\]", "")
 m_sim2p$index <- "m_sim2"
 
-m_sim1p <- posterior_summary(m_sim1) %>% as.data.frame()%>% exp() %>% rownames_to_column() %>% filter(str_detect(rowname, "b_gr") )
-m_sim1p$rowname <- m_sim1p$rowname %>%  str_replace_all("b_gr", "")
+m_sim1p <- posterior_summary(m_sim1) %>% 
+  as.data.frame()%>% 
+  exp() %>% 
+  rownames_to_column() %>% 
+  filter(str_detect(rowname, "b_gr") )
+m_sim1p$rowname <- m_sim1p$rowname %>% 
+  str_replace_all("b_gr", "")
 m_sim1p$index <- "m_sim1"
 
 m_sim <- bind_rows(m_sim1p, m_sim2p)
@@ -124,17 +143,27 @@ m_sim <- bind_rows(m_sim1p, m_sim2p)
 
 
 ```{r}
-ggplot(m_sim, aes(rowname, Estimate, color=index)) + geom_pointinterval(aes(ymin=`Q2.5`, ymax=`Q97.5`), position = "dodge")+ xlab(NULL)+ ylab("median PT hrs")+ coord_flip()
+ggplot(m_sim, aes(rowname, Estimate, color=index)) + 
+  geom_pointinterval(aes(ymin=`Q2.5`, ymax=`Q97.5`), position = "dodge") + 
+  xlab(NULL)+ ylab("median PT hrs") + 
+  coord_flip()
 ```
 
-## now to HF data
+
+
+## Now to HF data
 
 
 ```{r}
-HF_data <- read_delim("HF_data.csv", 
-    delim = ";", escape_double = FALSE, trim_ws = TRUE)
-HF_data <- HF_data %>% filter(county != "homeless")
-HF_data <- HF_data %>% select(postacute_therapy, dementia, county, postacute_therapy_binned, age, sex, age_binned10, postacute_LOS, postacute_hospitalisations)
+HF_data <- read_delim(here("data/HF_data.csv"), 
+                      delim = ";", 
+                      escape_double = FALSE, 
+                      trim_ws = TRUE) %>% 
+  sample_frac(0.05)
+HF_data <- HF_data %>% 
+  filter(county != "homeless")
+HF_data <- HF_data %>% 
+  select(postacute_therapy, dementia, county, postacute_therapy_binned, age, sex, age_binned10, postacute_LOS, postacute_hospitalisations)
 HF_data$dementia <- as.factor(HF_data$dementia)
 HF_data
 ```
@@ -147,13 +176,26 @@ m3 - 2-level anova-like model
 ### ANOVA for proportion of getting PT
 
 ```{r}
-m1 <- brm(data=HF_data, postacute_therapy_binned~1, family = bernoulli(), file = "m1")
+m1 <- brm(
+  data = HF_data, 
+  formula = postacute_therapy_binned ~ 1, 
+  family = bernoulli(), 
+  chains = 2,
+  file = here("models/m1"))
 m1l <- loo(m1)
 
-m2 <- brm(data=HF_data, postacute_therapy_binned~0 + county, family = bernoulli(), file = "m2")
+m2 <- brm(
+  data = HF_data, 
+  formula = postacute_therapy_binned ~ 0 + county, 
+  family = bernoulli(), 
+  chains = 2, 
+  file = here("models/m2"))
 m2l <- loo(m2)
 
-m3 <- brm(data=HF_data, postacute_therapy_binned ~ 0 + (1|county), family = bernoulli(), file = "m3")
+m3 <- brm(data = HF_data, postacute_therapy_binned ~ 0 + (1 | county), 
+          family = bernoulli(), 
+          chains = 2, 
+          file = here("models/m3"))
 m3l <- loo(m3)
 ```
 
@@ -164,9 +206,13 @@ pp_check(m1)
 ```{r}
 pp_check(m2)
 ```
+
+
 ```{r}
 pp_check(m3)
 ```
+
+
 ```{r}
 loo_compare(m1l, m2l, m3l)
 ```
@@ -191,11 +237,15 @@ conditional_effects(m2)
 ```
 
 
-### anova for PT hrs
+### ANOVA for PT hrs
 
 ```{r}
-(m_anova_pt <- brm(data= HF_data %>% filter(postacute_therapy>0),
-          postacute_therapy~0 + (1|county), family = lognormal(), file = "m_anova_pt"))
+(m_anova_pt <- brm(
+  data = HF_data %>% filter(postacute_therapy>0),
+  formula = postacute_therapy~0 + (1|county), 
+  family = lognormal(), 
+  chains = 2,
+  file = here("models/m_anova_pt")))
 ```
 
 note that 2nd level SD > data level SD! This means that there is more variation between mean PT hrs of different counties than there is between the patients in individual counties.
@@ -215,7 +265,8 @@ d <- HF_data %>% filter(postacute_therapy>0) %>%
 ggplot() + 
   geom_pointinterval(data = m_anova_pts, aes(rowname, Estimate, ymin=`Q2.5`, ymax=`Q97.5`), size=3)+
   geom_point(data=d, aes(rowname, Estimate), size=0.9, color="red")
-  
+
 ```
+
 Here we plot geometric means.
 
