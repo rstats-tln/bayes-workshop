@@ -27,6 +27,7 @@ library("mice")
 library("naniar")
 library("qgcomp")
 library("rstan")
+library("tidybayes")
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 ```
@@ -94,13 +95,13 @@ comp %>%
   geom_boxplot(outlier.shape = NA) +
   geom_point(aes(color = Values), position = pj) +
   geom_line(aes(group = subj), alpha = 0.5) +
-  facet_wrap(~name) +
+  facet_wrap(~name, scales = "free_y") +
   labs(caption = "Lines denote individual trends.")
 ```
 
 
 
-Our default priors, based on original data.
+Our default priors, based on original data (get_prior cannot handle mice output).
 
 ```{r}
 get_prior(amp ~ tp * age + (1| subj), data = wrist, family = gaussian())
@@ -131,20 +132,22 @@ fit <- brm_multiple(
   )
 ```
 
+Note that the model is fitted separately to each imputed data slice.
 
-Models fitted using multiple imputed data, can show Rhats higher than 1.1, which might be false positive. 
-In our case Rhats seem reasonable anyway.
+This is our model summary
 
 ```{r}
 summary(fit)
 ```
 
+Models fitted using multiple imputed data, can show Rhats higher than 1.1, which might be false positive. 
+In our case Rhats seem reasonable anyway.
 
 ```{r}
 plot(fit, pars = "^b")
 ```
 
-> Note that model was fitted to each imputed dataset.
+> Note that model was fitted to each imputed dataset (number of chains!).
  
 We can see that our interaction-model suggest some improvement in sensory nerve conductance after treatment.
 
@@ -168,6 +171,8 @@ We have variables for sample collection date, county of residence, age/age group
 koro <- read_csv(here("data/korogenoest.csv"))
 ```
 
+Ok, this dataset is not that bad and is filtered to include at least collection date for each sample (minimum amount of metadata to upload sequence to ENA).
+
 ```{r}
 vis_miss(koro)
 ```
@@ -176,22 +181,209 @@ vis_miss(koro)
 
 ```{r}
 data <- koro %>% 
-  drop_na(orf1ab_ct, lineage, symptomatic, age10)
+  drop_na(orf1ab_ct, lineage, symptomatic, age)
 data %>% 
   vis_miss()
 ```
 
 
 ```{r}
-get_prior(orf1ab_ct ~ lineage + symptomatic + age10, data = data, family = gaussian())
+get_prior(orf1ab_ct ~ lineage + symptomatic + age, data = data, family = gaussian())
 ```
 
+First, let's fit our model using no-na dataset:
 
 ```{r}
 fit0 <- brm(orf1ab_ct ~ lineage + symptomatic + age, 
             data = data, 
             family = gaussian(), 
             prior = prior("normal(0, 2.5)", class = "b"),
+            file = here("models/orf1ab_ct ~ lineage + symptomatic + age"),
             chains = 2)
 ```
+
+Model summary of no-na model
+
+```{r}
+summary(fit0)
+```
+
+
+
+```{r, fig.height=7}
+plot(conditional_effects(fit0, effects = "lineage"), plot = FALSE)[[1]] +
+  coord_flip() +
+  labs(x = "Covid-19 lineage")
+```
+
+We can see that "None" shows highest Ct values indicating very low virus titer.
+Highest Ct values apparently come from individuals infected with AY.9 and AY.4 variants (a.k.a Delta/India)
+
+Using age10 classes may even result in a better fit, but then we don't have it as continuous variable, which is a drawback in following imputation business.
+
+
+### Model with imputed data
+
+Let's try to fit another model with "complete" dataset and impute missing values during model fitting.
+
+Nevertheless, we need to drop observations with 
+- missing lineage, because we cannot impute them with mi (Error: Argument 'mi' is not supported for family 'categorical(logit)').
+- Likewise, we have a problem with predictor symptomatic "Error: Argument 'mi' is not supported for family 'bernoulli(logit)'."
+
+Model specification for on-the-fly imputation is similar to multivariate model specification:
+```{r}
+data1 <- koro %>% 
+  drop_na(lineage, symptomatic)
+ct <- bf(orf1ab_ct | mi() ~ lineage + symptomatic + mi(age))
+age <- bf(age | mi() ~ lineage + symptomatic)
+fit1 <- brm(formula = ct + age + set_rescor(FALSE), 
+            data = data1, 
+            family = gaussian(), 
+            prior = prior("normal(0, 2.5)", class = "b"),
+            file = here("models/bf(orf1ab_ct | mi() ~ lineage + symptomatic + mi(age)) + bf(age | mi() ~ lineage + symptomatic)"),
+            chains = 2)
+```
+
+Now model summary shows that we have coefficients for both response variables.
+
+```{r}
+summary(fit1)
+```
+
+
+```{r, fig.height=7}
+plot(conditional_effects(fit1, effects = "lineage"), plot = FALSE)[[1]] +
+  coord_flip() +
+  labs(x = "Covid-19 lineage", title = "Imputed model")
+```
+
+Let's compare these two models side-by-side
+
+```{r}
+# draws from the initial fit
+f0d <- as.data.frame(fit0) %>% 
+  select(b_Intercept, starts_with("b_lineage")) %>% 
+  pivot_longer(cols = starts_with("b_lineage")) %>% 
+  mutate(ct = b_Intercept + value,
+         lineage = str_remove(name, "b_lineage"))
+# draws from imputation-fit
+f1d <- as.data.frame(fit1) %>% 
+  select(b_orf1abct_Intercept, starts_with("b_orf1abct_lineage")) %>% # here we need to use orf1abct draws
+  pivot_longer(cols = starts_with("b_orf1abct_lineage")) %>% 
+  mutate(ct = b_orf1abct_Intercept + value,
+         lineage = str_remove(name, "b_orf1abct_lineage"))
+```
+
+We can see that in this case the models are very similar (we had only few missing values after all)
+
+```{r, fig.height=10}
+bind_rows(f0d, f1d, .id = "model") %>% 
+  mutate(model = if_else(model == 1, "drop_na", "imputation")) %>% 
+  ggplot() +
+  stat_pointinterval(aes(lineage, ct, color = model), position = "dodge") +
+  coord_flip() +
+  labs(x = "Covid-19 lineage", caption = "Points denote median and\nbold and thin lines 67% and 95% qi, respectively.")
+```
+
+
+## Multivariate models
+
+As imputation during model fitting was similar to multivariate model fitting, we can easily fit our first model also as a simple multivariate model.
+
+We had three simultaneously measured parameters -- sdl, amp and scv and we can model them together.
+Let's reduce complexity and keep only subjects with complete data.
+
+```{r}
+wdata <- wrist %>% 
+  drop_na() %>% 
+  add_count(subj) %>% 
+  filter(n == 2)
+```
+
+
+```{r}
+vis_miss(wdata)
+```
+
+
+
+```{r}
+fit <- brm(
+  bf(mvbind(scv, amp, sdl) ~ tp * age + (1 | subj)) + set_rescor(FALSE), 
+  data = wdata, 
+  family = gaussian(), 
+  chains = 2,
+  file = here("models/mvbind(scv, amp, sdl) ~ tp * age + (1 | subj)")
+  )
+```
+
+We can see that each of the parameters now have the corresponding response variable as prefix.
+
+```{r}
+summary(fit)
+```
+
+
+Let’s take a look at some posterior-predictive checks, which give us a first impression of the model fit.
+
+```{r}
+pp_check(fit, resp = "scv")
+```
+
+
+```{r}
+pp_check(fit, resp = "amp")
+```
+
+
+```{r}
+pp_check(fit, resp = "sdl")
+```
+
+Amp and scv look good, but not so much sdl:
+
+```{r}
+bayes_R2(fit)
+```
+
+One can specify different response distribution family for different responses: 
+
+```{r}
+scv <- bf(scv ~ tp * age + (1 | subj))
+amp <- bf(amp ~ tp * age + (1 | subj))
+sdl <- bf(sdl ~ tp * age + (1 | subj)) + skew_normal()
+fit3 <- brm(
+  scv + amp + sdl + set_rescor(FALSE), 
+  data = wdata, 
+  family = gaussian(), 
+  chains = 2,
+  file = here("models/scv + amp + sdl + set_rescor(FALSE)")
+  )
+```
+
+```{r}
+pp_check(fit3, resp = "sdl")
+```
+
+Seems little better.
+
+```{r}
+plot(conditional_effects(fit3, "age:tp", resp = "amp"))
+```
+
+Based on amp, we can imagine that 40+ patients benefit more from the therapy (amp increase is a positive dynamics)
+
+```{r}
+plot(conditional_effects(fit3, "age:tp", resp = "scv"))
+```
+
+Nerve conductance speed might increase in all age groups in response to therapy.
+
+```{r}
+plot(conditional_effects(fit3, "age:tp", resp = "sdl"))
+```
+
+
+sdl decreases when nerve conductance improves.
+Together, all these parameters suggest a positive response to the treatment.
 
