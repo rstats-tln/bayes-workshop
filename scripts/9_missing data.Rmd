@@ -1,0 +1,156 @@
+---
+title: "Missing data"
+author: "TP"
+date: "15 10 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Imputing missing values is relatively straightforward with **brms** R package.
+There are two possible approaches, 
+
+(1) Impute missing values before the model fitting with multiple imputation, or 
+(2) impute missing values on the fly during model fitting.
+
+
+## Loading libraries
+
+```{r}
+library("tidyverse")
+library("here")
+library("brms")
+library("mice")
+library("naniar")
+library("qgcomp")
+library("rstan")
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+```
+
+
+## Fitting model using pre-imputed data
+
+Sensory nerve conductance (scv, m/s), distal latency time (sdl, ms) and 
+amplitude (amp, mV) was measured from 2nd finger before and after five rounds of treatment 
+with a certain wrist wrap.
+
+
+```{r}
+wrist <- read_csv(here("data/nervus_medianus_2nd_finger.csv")) %>% 
+  rename(subj = id) %>% 
+  mutate(tp = factor(tp, levels = c("pre", "post")))
+```
+
+
+Visualizing data.
+
+```{r}
+pj <- position_jitter(width = 0.1)
+wrist %>%
+  pivot_longer(c("sdl", "scv", "amp")) %>% 
+  ggplot(aes(as.factor(tp), value)) +
+  geom_boxplot() +
+  geom_point(position = pj) +
+  geom_line(aes(group = subj), alpha = 0.5) +
+  facet_wrap(~ name)
+```
+
+Visualizing missing data points.
+
+```{r}
+vis_miss(wrist)
+```
+
+
+Missing data (NAs) are from measurements below instrument limit of detection (LOD).
+ 
+We can impute such missing readings using **mice** package and `leftcenslognorm` method (imported from **qgcomp**). 
+
+```{r}
+imputed <- mice(wrist, method = "leftcenslognorm", print = FALSE)
+plot(imputed)
+```
+
+
+We can visualize imputed values relative to original data:
+```{r}
+comp <- complete(imputed, action = "long") %>% as_tibble()
+comp %>% 
+  pivot_longer(cols = c("sdl", "scv", "amp")) %>% 
+  select(subj, tp, age, name, value) %>%
+  distinct() %>% 
+  group_by(subj, tp, age, name) %>% 
+  add_count() %>% 
+  mutate(Values = if_else(n > 1, "imputed", "original")) %>% 
+  ggplot(aes(tp, value)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_point(aes(color = Values), position = pj) +
+  geom_line(aes(group = subj), alpha = 0.5) +
+  facet_wrap(~name) +
+  labs(caption = "Lines denote individual trends.")
+```
+
+
+
+Our default priors, based on original data.
+
+```{r}
+get_prior(amp ~ tp * age + (1| subj), data = wrist, family = gaussian())
+```
+
+
+Setting priors for our model.
+
+```{r}
+priors <- c(
+  prior("normal(0, 0.5)", class = "b"),
+  prior("normal(50, 10)", class = "Intercept"),
+  prior("exponential(1)", class = "sigma")
+)
+```
+
+
+Model fitting with multiple imputed data is straightforward with `brms_multiple` function:  
+
+```{r}
+fit <- brm_multiple(
+  scv ~ tp * age + (1 | subj), 
+  data = imputed, 
+  family = gaussian(), 
+  prior = priors, 
+  chains = 2,
+  file = here("models/scv ~ tp * age + (1 | subj)")
+  )
+```
+
+
+Models fitted using multiple imputed data, can show Rhats higher than 1.1, which might be false positive. 
+In our case Rhats seem reasonable anyway.
+
+```{r}
+summary(fit)
+```
+
+
+```{r}
+plot(fit, pars = "^b")
+```
+
+> Note that model was fitted to each imputed dataset.
+ 
+We can see that our interaction-model suggest some improvement in sensory nerve conductance after treatment.
+
+```{r}
+plot(conditional_effects(fit, effects = "age:tp"), plot= FALSE)[[1]] +
+  labs(x = "Patient age, years", y = "Sensory nerve conductance, m/s")
+```
+
+
+> The advantage of multiple imputation is that one can apply it to all kinds of models, since model fitting functions do not need to know that the data sets were imputed. 
+The drawback is the extra amount of time required for model fitting. 
+
+
