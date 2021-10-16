@@ -66,14 +66,18 @@ vis_miss(wrist)
 ```
 
 
-Missing data (NAs) are from measurements below instrument limit of detection (LOD).
+Missing data (NAs) in our case are from measurements below instrument limit of detection (LOD).
  
 We can impute such missing readings using **mice** package and `leftcenslognorm` method (imported from **qgcomp**). 
+
 
 ```{r}
 imputed <- mice(wrist, method = "leftcenslognorm", print = FALSE)
 plot(imputed)
 ```
+
+
+(have a look at the imputed dataset)
 
 
 We can visualize imputed values relative to original data:
@@ -153,4 +157,41 @@ plot(conditional_effects(fit, effects = "age:tp"), plot= FALSE)[[1]] +
 > The advantage of multiple imputation is that one can apply it to all kinds of models, since model fitting functions do not need to know that the data sets were imputed. 
 The drawback is the extra amount of time required for model fitting. 
 
+## Impute missing values on the fly during model fitting
+
+Our data is from Estonian Sars-Cov-2 sequencing project.
+
+We have variables for sample collection date, county of residence, age/age groups, vaccine brand, vaccination status (at least one shot), qPCR virus load proxy (orf1ab_ct) where smaller numbers mean higher virus load, presence of symptoms and assigned virus lineage where "None" usually means that obtained sequence was not good enough to assign a lineage (e.g. sequence quality is also related to virus load, less virus means that there might be not enough sequencing reads to assemble a virus genome to be used in lineage assignment).
+
+
+```{r}
+koro <- read_csv(here("data/korogenoest.csv"))
+```
+
+```{r}
+vis_miss(koro)
+```
+
+
+
+```{r}
+data <- koro %>% 
+  drop_na(orf1ab_ct, lineage, symptomatic, age10)
+data %>% 
+  vis_miss()
+```
+
+
+```{r}
+get_prior(orf1ab_ct ~ lineage + symptomatic + age10, data = data, family = gaussian())
+```
+
+
+```{r}
+fit0 <- brm(orf1ab_ct ~ lineage + symptomatic + age, 
+            data = data, 
+            family = gaussian(), 
+            prior = prior("normal(0, 2.5)", class = "b"),
+            chains = 2)
+```
 
