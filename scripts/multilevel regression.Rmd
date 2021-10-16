@@ -1,0 +1,642 @@
+---
+title: "Multilevel regression"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(brms)
+library(tidybayes)
+options(mc.cores = parallel::detectCores())
+```
+
+```{r}
+HF_data <- read_delim("HF_data.csv", 
+    delim = ";", escape_double = FALSE, trim_ws = TRUE)
+#HF_data <- HF_data %>% filter(county != "homeless")
+HF_data <- HF_data %>% select(postacute_therapy, dementia, county, postacute_therapy_binned, age, sex, age_binned10, postacute_LOS, postacute_hospitalisations)
+HF_data$dementia <- as.factor(HF_data$dementia)
+HF_data
+```
+
+
+## 2-level regression models
+
+```{r}
+m3.1 <- brm(data= HF_data %>% filter(postacute_therapy>0),
+          postacute_therapy~dementia + county, family = lognormal(), file = "m3.1")
+m3.2 <- brm(data= HF_data %>% filter(postacute_therapy>0),
+          postacute_therapy~dementia * county, family = lognormal(), file = "m3.2")
+m4 <- brm(data= HF_data %>% filter(postacute_therapy>0),
+          postacute_therapy~dementia + (1|county), family = lognormal(), file = "m4")
+m5 <- brm(data= HF_data %>% filter(postacute_therapy>0),
+          postacute_therapy~dementia + (dementia|county), family = lognormal(), file = "m5")
+
+m3.1l <- loo(m3.1)
+m3.2l <- loo(m3.2)
+m4l <- loo(m4)
+m5l <- loo(m5)
+loo_compare(m3.1l, m4l, m5l, m3.2l)
+```
+
+```{r}
+posterior_summary(m3.1)
+```
+
+```{r}
+posterior_summary(m4)
+```
+
+rho = sd_county_intercept squared/(sd_county_intercept squared + sigma squared) - this is intragroup correlation. Expected correlation of two random members of the same group. Also proportion of variance that is explained by group membership
+
+```{r}
+0.36**2/(0.36**2 + 0.89**2)
+```
+
+
+
+```{r}
+posterior_summary(m5)
+```
+```{r}
+pp_check(m5)
+```
+
+```{r}
+conditional_effects(m3.1, effects="county:dementia")
+```
+```{r}
+conditional_effects(m3.1, effects="dementia", conditions = make_conditions(HF_data, "county"))
+```
+
+
+```{r}
+conditional_effects(m3.2, effects="county:dementia")
+```
+
+re_formula - A formula containing group-level effects to be considered in the conditional predictions. If NULL, include all group-level effects; if NA (default), include no group-level effects.
+```{r}
+conditional_effects(m4, re_formula = NULL, effects = "dementia", conditions = make_conditions(HF_data, "county"))
+```
+
+
+```{r}
+conditional_effects(m5, re_formula = NULL, effects = "dementia", conditions = make_conditions(HF_data, "county"))
+```
+
+```{r}
+conditional_effects(m5, re_formula = NULL, effects = "dementia", conditions = make_conditions(HF_data, "county"), method = "posterior_predict")
+```
+
+```{r}
+conditional_effects(m5, effects="dementia")
+```
+
+effect size for dementia (difference for 2 medians). 
+
+```{r}
+m5_post <- as.data.frame(m5)
+posterior_summary(exp(m5_post$b_Intercept + m5_post$b_dementia1))
+```
+
+and now the difference for the means. This is much smaller than for the medians.
+```{r}
+mu1 <- exp(m5_post$b_Intercept + 1/2 * m5_post$sigma^2)
+mu2 <- exp(m5_post$b_Intercept + m5_post$b_dementia1  + 1/2 * m5_post$sigma^2)
+posterior_summary(mu1 - mu2)
+```
+
+
+posterior_epred() makes predictions about the means in the original data scale (link functions are back-transformed)
+
+posterior_linpred does the same w.o. backtransforming the links
+
+posterior_predict makes predictions at the data scale (not the means, but datapoints)
+
+
+
+## lets practice posterior_epred and compare 1-level and 2-level models
+
+```{r}
+df1 <- crossing(county= unique(HF_data$county), dementia= c(0,1))
+#new data for which predictions are made
+names <- df1 %>% unite(n, c("county", "dementia")) 
+#column names for predicted means
+
+m3.2epred <- posterior_epred(m3.2, newdata = df1) %>% as.data.frame()
+colnames(m3.2epred) <- names$n
+m3.2pred_summary <- posterior_summary(m3.2epred) %>% as.data.frame() %>% rownames_to_column()
+m3.2pred_summary$index <- "m3.2"
+
+m5epred <- posterior_epred(m5, newdata = df1, re_formula = NULL) %>% as.data.frame()
+colnames(m5epred) <- names$n
+m5pred_summary <- posterior_summary(m5epred) %>% as.data.frame() %>% rownames_to_column()
+m5pred_summary$index <- "m5"
+
+m35 <- bind_rows(m5pred_summary, m3.2pred_summary) 
+```
+
+```{r fig.height=5}
+ggplot(data=m35) +
+  geom_pointinterval(aes(rowname, Estimate, ymin=`Q2.5`, ymax=`Q97.5`, color=index), position = "dodge")+
+  xlab(NULL)+
+  ylab("mean PT hrs")+
+  coord_flip()
+```
+
+## Excercise:
+
+fit a full distributional model for predicting PT hrs, where predictors are time and sex and also the temporal change in variation of provided PT is modelled. To make it faster, use only 10% of the data. Make the 2 parts of the model correlated by county.
+
+```{r}
+set.seed(1)
+dd <- HF_data %>% group_by(county) %>% slice_sample(prop = 0.1)
+```
+
+
+
+## Multi-membership models
+
+Predict the performance of students at the end of the year. Schools differ in the ratio of teachers and students, etc. Thus, a multilevel model including school as a group-level term: (1 | school). However, a non-negligible number of students might change schools during the year. we need a multi-membership model. Setting up such a model not only requires information on the different schools students attend during the year, but also the amount of time spend at each school. The latter can be used to weight the influence each school has on its students. For now, let us assume that students change schools maximally once a year and spend equal time at each school. We will later see how to relax these assumptions.
+
+table column structure: student_ID, x, y, sch1, sch2, weight1, weight2.
+
+2 school columns means that each student can be assigned to a max of 2 schools.
+
+for each row (student) weight1 + weight2 = 1
+
+Even when a students school variables are identical (the school does not change), we have to specify both in order to pass the data appropriately. 
+
+assuming equal weights
+```{r eval=FALSE}
+fit_mm <- brm(y ~ 1 + (1 | mm(sch1, sch2)), data = data_mm)
+```
+
+taking weights in:
+```{r eval=FALSE}
+fit_mm2 <- brm(y ~ 1 + (1 | mm(sch1, sch2, weights = cbind(weight1, weight2))), data = data_mm)
+```
+
+The assumption that students change schools only once a year, may be relaxed: mm(sch1, sch2, sch3).
+
+```{r eval=FALSE}
+# simulate some data
+dat <- data.frame(
+ y = rnorm(100), x1 = rnorm(100), x2 = rnorm(100),
+ g1 = sample(1:10, 100, TRUE), g2 = sample(1:10, 100, TRUE)
+)
+
+# multi-membership model with two members per group and equal weights
+fit1 <- brm(y ~ x1 + (1|mm(g1, g2)), data = dat)
+summary(fit1)
+
+# weight the first member two times for than the second member
+dat$w1 <- rep(2, 100)
+dat$w2 <- rep(1, 100)
+fit2 <- brm(y ~ x1 + (1|mm(g1, g2, weights = cbind(w1, w2))), data = dat)
+summary(fit2)
+
+# multi-membership model with level specific covariate values
+dat$xc <- (dat$x1 + dat$x2) / 2
+fit3 <- brm(y ~ xc + (1 + mmc(x1, x2) | mm(g1, g2)), data = dat)
+summary(fit3)
+
+# to account for both class and teacher effects via multimemembership terms.
+y ~ ... + (... | mm(<classes>, weights = ...) + (... | mm(<teachers>, weights = ...)
+```
+
+
+
+# Mixture models: zero-inflated and hurdle regression
+
+Two independent processes that produce count data. One produces only zero counts by binomial model, for example peptides that are stochastically not detected in proteomics experiment. The other process produces counts by actual measurement (Poisson data model, or any other count model). The first process produces only zero counts, the second process produces all kind of counts, including zero counts.  
+
+To specify a zero inflated model use brm() argument: family = zero_inflated_poisson(), zero_inflated_beta(), zero_one_inflated_beta, _binomial(), _negbinomial().
+
+We model by using two different linear models together. The two models also have different link function. For example, for a poisson prosecc we use: 1. logit link and binomial model to model the zero-generating process, 2. log-link and poisson model.
+
+$$y \sim ZIPoisson(p, \lambda)$$
+
+$$logit(p) = a_p + b_px$$
+
+$$log(\lambda) = a_{\lambda} + b_{\lambda}x$$
+
+plus 4 priors for each intercept and slope. NB! We can easily use different x vars (predictors) in the two models. In brms we can separately model the part of zero counts that arises from the 1. binomial zero model, using syntax 
+
+
+```{r eval=FALSE}
+brm(bf(y ~ x1 + x2, zi ~ x1 + x2), 
+    data = data, 
+    family = zero_inflated_poisson())
+```
+
+When instead of two different processes that produce zero counts, we have a single data generating process, but two distinct populations of y observations - one that produces only zeros, and another that produces anything but zeros - then we use **hurdle regression** (also called zero-augmented). The relevant brms families are: hurdle_gamma, hurdle_negbinomial, hurdle_poisson, hurdle_lognormal.
+
+
+```{r}
+unique(HF_data$postacute_therapy)
+d1 <- HF_data %>% mutate(PT = round(postacute_therapy))
+```
+
+
+```{r}
+m_hu0 <- brm(data= d1 , 
+             bf(PT~dementia , 
+                hu~dementia ), 
+             family = hurdle_lognormal(), chains = 2, file = "m_hu0")
+m_hu0
+```
+
+```{r}
+m_lnorm <- brm(data=d1 %>% filter(PT>0), PT~ dementia, 
+              family = lognormal(), file = "m_lnorm")
+m_lnorm
+```
+```{r}
+m_bin1 <- brm(data=d1, postacute_therapy_binned~ dementia, 
+              family = bernoulli(), file = "m_bin1")
+m_bin1
+```
+
+
+```{r}
+conditional_effects(m_hu0)
+```
+
+```{r}
+conditional_effects(m_hu0, dpar= "hu")
+```
+
+
+```{r}
+m_hu1 <- brm(data= d1 %>% 
+               group_by(county) %>% 
+               slice_sample(prop=0.2), 
+             bf(PT~dementia + sex + age + (dementia|county), 
+                hu~dementia + sex + age + (dementia|county)), 
+             family = hurdle_lognormal(), chains = 2, file = "m_hu1")
+```
+
+```{r}
+conditions <- make_conditions(HF_data, c("county"))
+conditional_effects(m_hu1, effects = "dementia:sex", conditions = conditions, re_formula = NULL)
+```
+
+```{r}
+conditional_effects(m_hu1, effects = "dementia:sex", conditions = conditions, re_formula = NULL, dpar="hu")
+```
+
+
+
+```{r}
+newdata <- data.frame(crossing(county = unique(HF_data$county),
+                               age = c(70, 90),
+                               sex = c("f", "m"),
+                               dementia= c("0", "1"))) 
+
+m_hu1_epred <- fitted(m_hu1, re_formula = NULL, newdata = newdata) %>% as.data.frame()
+m_hu1_epred <- m_hu1_epred %>% bind_cols(newdata)
+
+ggplot(m_hu1_epred, aes(dementia, Estimate, shape=sex, color= factor(age))) + 
+  geom_pointinterval(aes(ymin=`Q2.5`, ymax=`Q97.5`), position = "dodge")+
+  facet_wrap(~county)
+```
+
+```{r}
+m_hu1_epred_hu <- fitted(m_hu1, re_formula = NULL, newdata = newdata, dpar = "hu") %>% as.data.frame()
+m_hu1_epred_hu <- m_hu1_epred_hu %>% bind_cols(newdata)
+
+ggplot(m_hu1_epred_hu, aes(dementia, Estimate, shape=sex, color= factor(age))) + 
+  geom_pointinterval(aes(ymin=`Q2.5`, ymax= `Q97.5`), position = "dodge")+
+  facet_wrap(~county)
+```
+
+in m_hu1 we estimate correlations between intercept and slopes independently for both submodels. Thus these submodels are the same as running two separate models.
+
+Now we also get estimates for correlations between the submodels, making more efficient use of the data
+
+```{r}
+m_hu2 <- brm(data= d1 %>% 
+               group_by(county) %>% 
+               slice_sample(prop=0.2), 
+             bf(PT~dementia + sex + age + (dementia|a|county), 
+                hu~dementia + sex + age + (dementia|a|county)), 
+             family = hurdle_lognormal(), chains = 2, file = "m_hu2")
+m_hu2
+```
+re_formula= NULL - include all group-level effects
+re_formula = NA (default behaviour) - exclude group-level effects
+```{r}
+conditions <- make_conditions(HF_data, c("county"))
+conditional_effects(m_hu2, effects = "dementia:sex", conditions = conditions, re_formula = NULL)
+```
+
+## Zero-inflated
+
+assume a constant zero-inflation probability across observations.
+
+```{r}
+m_zi00negb <- brm <- brm(data= d1 , 
+             PT ~dementia , 
+             family = zero_inflated_negbinomial(), chains = 2, file = "m_zi00negb")
+
+```
+zi 0.57 is the zero inflation probability (57% Pr that a zero comes from a zero-only process)
+```{r}
+get_prior(data= d1 , PT ~dementia , family = zero_inflated_negbinomial())
+```
+zi takes a beta prior, which is easy to set! Default is flat prior from 0 to 1.
+
+```{r}
+priors <-
+  c(prior(beta(1, 1), class = zi),
+    prior(beta(4, 4), class = zi),
+    prior(beta(0.5, 0.5), class = zi),
+    prior(beta(2, 6), class = zi))
+
+priors %>% 
+  parse_dist(prior) %>%
+  ggplot(aes(y = prior, dist = .dist, args = .args)) +
+  stat_dist_halfeye(.width = .95) +
+  ylab(NULL) + theme_minimal()
+```
+
+
+```{r}
+conditional_effects(m_zi00negb, dpar="zi")
+```
+
+
+```{r}
+conditional_effects(m_zi00negb, dpar="zi")
+```
+
+now we allow the zi probability vary by predictor levels:
+
+```{r}
+m_zi0negb <- brm(data= d1 , 
+             bf(PT ~dementia , 
+                zi~dementia ), 
+             family = zero_inflated_negbinomial(), chains = 2, file = "m_zi0negb")
+m_zi0pois <- brm(data= d1 , 
+             bf(PT~dementia , 
+                zi~dementia ), 
+             family = zero_inflated_poisson(), chains = 2, file = "m_zi0pois")
+
+m_zi0negb <-  add_criterion(m_zi0negb, "loo", file = "m_zi0negb")
+m_zi0pois <- add_criterion(m_zi0pois, "loo", file = "m_zi0pois")
+loo_compare(m_zi0pois, m_zi0negb)
+```
+```{r}
+m_zi0negb
+```
+
+```{r}
+conditional_effects(m_zi0pois)
+```
+```{r}
+conditional_effects(m_zi0negb)
+```
+
+```{r}
+pp_check(m_zi0pois)
+```
+```{r}
+pp_check(m_zi0negb)
+```
+
+### 2+ separate predicted vars estimated with correlated effects of groupings vars
+
+```{r}
+data("BTdata", package = "MCMCglmm")
+head(BTdata)
+```
+
+mvbind() tells brms that both tarsus and back are separate response variables. The term (1|p|fosternest) indicates a varying intercept over fosternest. By writing |p| in between we indicate that all varying effects of fosternest should be modeled as correlated. This makes sense since we actually have two model parts, one for tarsus and one for back. Similarly, the term (1|q|dam) indicates correlated varying effects of the genetic mother of the chicks. 
+
+the parameters now have the corresponding response variable as prefix. Within dams, tarsus length and back color seem to be negatively correlated, while within fosternests the opposite is true. This indicates differential effects of genetic and environmental factors on these two characteristics. 
+
+the small residual correlation rescor(tarsus, back) indicates that there is little unmodeled dependency between tarsus length and back color. 
+
+```{r}
+fit1tarsus <- brm(
+  mvbind(tarsus, back) ~ sex + hatchdate + (1|p|fosternest) + (1|q|dam),
+  data = BTdata, chains = 2, cores = 2, file="fit1tarsus"
+)
+```
+
+How much variation in the response variables can be explained by our model?
+
+```{r}
+bayes_R2(fit1tarsus)
+```
+```{r}
+loo_R2(fit1tarsus)
+```
+
+Now, suppose we only want to control for sex in tarsus but not in back and vice versa for hatchdate. We can no longer use mvbind syntax and so we have to use a more verbose approach:
+
+```{r eval=FALSE}
+bf_tarsus <- bf(tarsus ~ sex + (1|p|fosternest) + (1|q|dam))
+bf_back <- bf(back ~ hatchdate + (1|p|fosternest) + (1|q|dam))
+
+fit2 <- brm(bf_tarsus + bf_back, data = BTdata, chains = 2, cores = 2)
+```
+Note that we have literally added the two model parts via the + operator, which is in this case equivalent to writing mvbf(bf_tarsus, bf_back).
+
+Now we change our model in various directions at the same time. Remember the slight left skewness of tarsus, which we will now model by using the skew_normal family instead of the gaussian family. Since we do not have a multivariate normal (or student-t) model, anymore, estimating residual correlations is no longer possible. We make this explicit using the set_rescor function. Further, we investigate if the relationship of back and hatchdate is really linear as previously assumed by fitting a non-linear spline of hatchdate. On top of it, we model separate residual variances of tarsus for male and female chicks.
+
+```{r eval=FALSE}
+bf_tarsus <- bf(tarsus ~ sex + (1|p|fosternest) + (1|q|dam)) +
+  lf(sigma ~ 0 + sex) + skew_normal()
+bf_back <- bf(back ~ s(hatchdate) + (1|p|fosternest) + (1|q|dam)) +
+  gaussian()
+
+fit3 <- brm(
+  bf_tarsus + bf_back + set_rescor(FALSE), 
+  data = BTdata, chains = 2, cores = 2,
+  control = list(adapt_delta = 0.95)
+)
+```
+
+we see from the negative alpha (skewness) parameter of tarsus that the residuals are indeed slightly left-skewed. (alpha_tarsus = -1.25)
+
+
+### non-linear predictors (bivariate tensor spline)
+
+Here, we aim at predicting the rent per square meter with the size of the apartment as well as the construction year, while taking the district of Munich into account. As the effect of both predictors on the rent is of unknown non-linear form, we model these variables using a bivariate tensor spline (Wood, Scheipl, and Faraway 2013). The district is accounted for via a varying intercept.
+
+```{r}
+data("rent99", package = "gamlss.data")
+head(rent99)
+```
+
+```{r eval=FALSE}
+fit_rent1 <- brm(rentsqm ~ t2(area, yearc) + (1|district), data = rent99,
+                 chains = 2, cores = 2)
+```
+
+
+For models including splines, the output of summary is not tremendously helpful, but we get at least some information. Firstly, the credible intervals of the standard deviations of the coefficients forming the splines (under ’Smooth Terms’) are sufficiently far away from zero to indicate non-linearity in the (combined) effect of area and yearc. Secondly, even after controlling for these predictors, districts still vary with respect to rent per square meter by a sizable amount as visible under ’Group-Level Effects’ in the output. To further understand the effect of the predictor, we apply graphical methods:
+```{r eval=FALSE}
+conditional_effects(fit_rent1, surface = TRUE)
+```
+
+In the above example, we only considered the mean of the response distribution to vary by area and yearc, but this my not necessarily reasonable assumption, as the variation of the response might vary with these variables as well. Accordingly, we fit splines and effects of district for both the location and the scale parameter, which is called sigma in Gaussian models.
+
+```{r eval=FALSE}
+bform <- bf(rentsqm ~ t2(area, yearc) + (1|ID1|district),
+            sigma ~ t2(area, yearc) + (1|ID1|district))
+fit_rent2 <- brm(bform, data = rent99, chains = 2, cores = 2)
+```
+
+If not otherwise specified, sigma is predicted on the log-scale to ensure it is positive no matter how the predictor term looks like. Instead of (1|district) as in the previous model, we now use (1|ID1|district) in both formulas. This results in modeling the varying intercepts of both model parts as correlated (see the description of the ID-syntax above). 
+
+Lastly, we want to turn our attention to the splines. While conditional_effects is used to visualize effects of predictors on the expected response, conditional_smooths is used to show just the spline parts of the model: `conditional_smooths(fit_rent2)`
+
+
+
+
+# Special Family Functions for brms Models
+
+These are likelihood functions. You can also specify custom families with the custom_family function.
+
+
++ student(link = "identity", link_sigma = "log", link_nu = "logm1")
+
++ bernoulli(link = "logit")
+
++ negbinomial(link = "log", link_shape = "log")
+
++ geometric(link = "log")
+
++ lognormal(link = "identity", link_sigma = "log")
+
++ shifted_lognormal(link = "identity", link_sigma = "log", link_ndt = "log")
+
++ skew_normal(link = "identity", link_sigma = "log", link_alpha = "identity")
+
++ exponential(link = "log")
+
++ weibull(link = "log", link_shape = "log")
+
++ frechet(link = "log", link_nu = "logm1")
+
++ gen_extreme_value(link = "identity", link_sigma = "log", link_xi = "log1p")
+
++ exgaussian(link = "identity", link_sigma = "log", link_beta = "log")
+
++ wiener(
+  link = "identity",
+  link_bs = "log",
+  link_ndt = "log",
+  link_bias = "logit"
+)
+
++ Beta(link = "logit", link_phi = "log")
+
++ dirichlet(link = "logit", link_phi = "log", refcat = NULL)
+
++ von_mises(link = "tan_half", link_kappa = "log")
+
++ asym_laplace(link = "identity", link_sigma = "log", link_quantile = "logit")
+
++ cox(link = "log", bhaz = NULL)
+
++ hurdle_poisson(link = "log")
+
++ hurdle_negbinomial(link = "log", link_shape = "log", link_hu = "logit")
+
++ hurdle_gamma(link = "log", link_shape = "log", link_hu = "logit")
+
++ hurdle_lognormal(link = "identity", link_sigma = "log", link_hu = "logit")
+
++ zero_inflated_beta(link = "logit", link_phi = "log", link_zi = "logit")
+
++ zero_one_inflated_beta(
+  link = "logit",
+  link_phi = "log",
+  link_zoi = "logit",
+  link_coi = "logit"
+)
+
++ zero_inflated_poisson(link = "log", link_zi = "logit")
+
++ zero_inflated_negbinomial(link = "log", link_shape = "log", link_zi = "logit")
+
++ zero_inflated_binomial(link = "logit", link_zi = "logit")
+
++ categorical(link = "logit", refcat = NULL)
+
++ multinomial(link = "logit", refcat = NULL)
+
++ cumulative(link = "logit", link_disc = "log", threshold = "flexible")
+
++ sratio(link = "logit", link_disc = "log", threshold = "flexible")
+
++ cratio(link = "logit", link_disc = "log", threshold = "flexible")
+
++ acat(link = "logit", link_disc = "log", threshold = "flexible")
+
+
+threshold	
+A character string indicating the type of thresholds (i.e. intercepts) used in an ordinal model. "flexible" provides the standard unstructured thresholds, "equidistant" restricts the distance between consecutive thresholds to the same value, and "sum_to_zero" ensures the thresholds sum to zero.
+
+refcat	
+Optional name of the reference response category used in categorical, multinomial, and dirichlet models. If NULL (the default), the first category is used as the reference. If NA, all categories will be predicted, which requires strong priors or carefully specified predictor terms in order to lead to an identified model.
+
+
++  gaussian can be used for linear regression.
+
++  student can be used for robust linear regression that is less influenced by outliers.
+
++ skew_normal can handle skewed responses in linear regression.
+
++ poisson, negbinomial, and geometric can be used for regression of unbounded count data.
+
++ bernoulli and binomial can be used for binary regression (i.e., most commonly logistic regression).
+
++ categorical and multinomial can be used for multi-logistic regression when there are more than two possible outcomes.
+
++ cumulative, cratio ('continuation ratio'), sratio ('stopping ratio'), and acat ('adjacent category') leads to ordinal regression.
+
++ Gamma, weibull, exponential, lognormal, frechet, inverse.gaussian, and cox (Cox proportional hazards model) can be used (among others) for time-to-event regression also known as survival regression.
+
++ weibull, frechet, and gen_extreme_value ('generalized extreme value') allow for modeling extremes.
+
++ beta and dirichlet can be used to model responses representing rates or probabilities.
+
++ asym_laplace allows for quantile regression when fixing the auxiliary quantile parameter to the quantile of interest.
+
++ exgaussian ('exponentially modified Gaussian') and shifted_lognormal are especially suited to model reaction times.
+
++ wiener provides an implementation of the Wiener diffusion model. For this family, the main formula predicts the drift parameter 'delta' and all other parameters are modeled as auxiliary parameters (see brmsformula for details).
+
++ hurdle_poisson, hurdle_negbinomial, hurdle_gamma, hurdle_lognormal, zero_inflated_poisson, zero_inflated_negbinomial, zero_inflated_binomial, zero_inflated_beta, and zero_one_inflated_beta allow to estimate zero-inflated and hurdle models. These models can be very helpful when there are many zeros in the data (or ones in case of one-inflated models) that cannot be explained by the primary distribution of the response.
+
+Below, we list all possible links for each family. The first link mentioned for each family is the default.
+
+Families gaussian, student, skew_normal, exgaussian, asym_laplace, and gen_extreme_value support the links (as names) identity, log, inverse, and softplus.
+
+Families poisson, negbinomial, geometric, zero_inflated_poisson, zero_inflated_negbinomial, hurdle_poisson, and hurdle_negbinomial support log, identity, sqrt, and softplus.
+
+Families binomial, bernoulli, Beta, zero_inflated_binomial, zero_inflated_beta, and zero_one_inflated_beta support logit, probit, probit_approx, cloglog, cauchit, and identity.
+
+Families cumulative, cratio, sratio, and acat support logit, probit, probit_approx, cloglog, and cauchit.
+
+Families categorical, multinomial, and dirichlet support logit.
+
+Families Gamma, weibull, exponential, frechet, and hurdle_gamma support log, identity, inverse, and softplus.
+
+Families lognormal and hurdle_lognormal support identity and inverse.
+
+Family inverse.gaussian supports 1/mu^2, inverse, identity, log, and softplus.
+
+Family von_mises supports tan_half and identity.
+
+Family cox supports log, identity, and softplus for the proportional hazards parameter.
+
+Family wiener supports identity, log, and softplus for the main parameter which represents the drift rate.
+
+Please note that when calling the Gamma family function of the stats package, the default link will be inverse instead of log although the latter is the default in brms. Also, when using the family functions gaussian, binomial, poisson, and Gamma of the stats package (see family), special link functions such as softplus or cauchit won't work. In this case, you have to use brmsfamily to specify the family with corresponding link function.
+
