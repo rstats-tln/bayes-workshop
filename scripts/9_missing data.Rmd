@@ -44,6 +44,7 @@ with a certain wrist wrap.
 wrist <- read_csv(here("data/nervus_medianus_2nd_finger.csv")) %>% 
   rename(subj = id) %>% 
   mutate(tp = factor(tp, levels = c("pre", "post")))
+wrist
 ```
 
 
@@ -57,10 +58,12 @@ wrist %>%
   geom_boxplot() +
   geom_point(position = pj) +
   geom_line(aes(group = subj), alpha = 0.5) +
-  facet_wrap(~ name)
+  facet_wrap(~ name, scales = "free_y")
 ```
 
 Visualizing missing data points.
+
+viss_miss comes from **naniar** package.
 
 ```{r}
 vis_miss(wrist)
@@ -104,7 +107,7 @@ comp %>%
 Our default priors, based on original data (get_prior cannot handle mice output).
 
 ```{r}
-get_prior(amp ~ tp * age + (1| subj), data = wrist, family = gaussian())
+get_prior(scv ~ tp * age + (1| subj), data = wrist, family = gaussian())
 ```
 
 
@@ -177,6 +180,15 @@ Ok, this dataset is not that bad and is filtered to include at least collection 
 vis_miss(koro)
 ```
 
+```{r}
+koro %>% 
+  filter(age == -1)
+koro <- koro %>% 
+  mutate(age = ifelse(age == -1, NA, age))
+sum(is.na(koro$age))
+vis_miss(koro)
+```
+
 
 
 ```{r}
@@ -235,12 +247,12 @@ Model specification for on-the-fly imputation is similar to multivariate model s
 data1 <- koro %>% 
   drop_na(lineage, symptomatic)
 ct <- bf(orf1ab_ct | mi() ~ lineage + symptomatic + mi(age))
-age <- bf(age | mi() ~ lineage + symptomatic)
+age <- bf(age | mi() ~ sex + symptomatic)
 fit1 <- brm(formula = ct + age + set_rescor(FALSE), 
             data = data1, 
             family = gaussian(), 
             prior = prior("normal(0, 2.5)", class = "b"),
-            file = here("models/bf(orf1ab_ct | mi() ~ lineage + symptomatic + mi(age)) + bf(age | mi() ~ lineage + symptomatic)"),
+            file = here("models/bf(orf1ab_ct | mi() ~ lineage + symptomatic + mi(age)) + bf(age | mi() ~ sex + symptomatic)"),
             chains = 2)
 ```
 
@@ -309,7 +321,7 @@ vis_miss(wdata)
 
 ```{r}
 fit <- brm(
-  bf(mvbind(scv, amp, sdl) ~ tp * age + (1 | subj)) + set_rescor(FALSE), 
+  bf(mvbind(scv, amp, sdl) ~ tp * age + (1 | subj)) + set_rescor(TRUE), 
   data = wdata, 
   family = gaussian(), 
   chains = 2,
@@ -349,9 +361,9 @@ bayes_R2(fit)
 One can specify different response distribution family for different responses: 
 
 ```{r}
-scv <- bf(scv ~ tp * age + (1 | subj))
-amp <- bf(amp ~ tp * age + (1 | subj))
-sdl <- bf(sdl ~ tp * age + (1 | subj)) + skew_normal()
+scv <- bf(scv ~ tp * age + (1 |i| subj))
+amp <- bf(amp ~ tp * age + (1 |i| subj))
+sdl <- bf(sdl ~ tp * age + (1 |i| subj)) + skew_normal()
 fit3 <- brm(
   scv + amp + sdl + set_rescor(FALSE), 
   data = wdata, 

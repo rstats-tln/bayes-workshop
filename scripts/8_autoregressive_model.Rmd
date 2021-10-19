@@ -161,7 +161,40 @@ fitted(mod1,
   labs(x = "Days from the end of wave 12 study", y = "Number of positive cases", caption = "Points denote original data.")
 ```
 
+
+
+
+
 Model looks good. However, loo is absolutely not happy with the model.
+
+```{r}
+mod2 <- brm(
+  formula = positive | trials(tested) ~ ar(time, p = 2),
+  data = covid,
+  family = binomial(),
+  prior = priors,
+  chains = 3,
+  file = here("models/positive | trials(tested) ~ ar(time, p = 2)"),
+  file_refit = "on_change",
+  save_pars = save_pars(all = TRUE)
+)
+```
+
+
+```{r}
+fitted(mod2,
+       summary = FALSE,
+       nsamples = 1000) %>% 
+  as_tibble() %>% 
+  set_names(covid$wave) %>% 
+  mutate(.iter = row_number()) %>% 
+  pivot_longer(cols = matches("\\d"), names_to = "wave") %>% 
+  left_join(covid %>% select(wave, time) %>% distinct()) %>% 
+  ggplot() +
+  stat_lineribbon(aes(time, value), alpha = 1/5) +
+  geom_point(data = covid, aes(x = time, y = positive)) +
+  labs(x = "Days from the end of wave 12 study", y = "Number of positive cases", caption = "Points denote original data.")
+```
 
 
 ## References

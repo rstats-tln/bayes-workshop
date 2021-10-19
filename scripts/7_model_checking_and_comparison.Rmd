@@ -11,11 +11,15 @@ knitr::opts_chunk$set(echo = TRUE)
 
 
 Bayesian workflow includes fitting many models and, naturally, we would like to evaluate and compare these models.
+
 Without waiting for the new data, we can compare predictions on the observed data, but as we have already used this data to fit our models, the result is overly optimistic about our model performance.
+
 In cross-validation (CV) proportion of the data is left out from model fitting and can be used later to assess model performance.
+
 When prediction is not the goal of model building, CV can be means to assess generalization from one part of the data to another part.
 
 There are different CV strategies, but in all cases the model is refitted when some part of the data is left out.
+
 CV removes the over-fitting problem arising when model is fitted and evaluated on same exact data.
 
 # Leave-one-out CV
@@ -30,7 +34,9 @@ If the observations are conditionally independent, then the likelihood is the pr
 In this expression, leaving out observation *i* is equivalent to multiplying the posterior distribution by the factor $$1/p(y_i\vert\theta)$$
 
 
-The LOO posterior excluding point *i* then becomes $$p(\theta\vert y_{-i}) = p(\theta)/p(y_i\vert\theta)$$, and the LOO distribution is then computed by taking the posterior simulations for $\theta$ obtained from `stan_glm` and giving each simulation a weight of $$1/p(y_i\vert\theta)$$
+
+The LOO posterior excluding point *i* then becomes $$p(\theta\vert y_{-i}) = p(\theta)/p(y_i\vert\theta)$$
+, and the LOO distribution is then computed by taking the posterior simulations for $\theta$ obtained from `stan_glm` and giving each simulation a weight of $$1/p(y_i\vert\theta)$$
 This set of weighed simulations is used to get predictive distribution on $y_i$, the held-out data point. Apparently, as using the raw weights can be noisy, the `loo` function smooths them before doing the computation.
 
 
@@ -41,6 +47,7 @@ library("brms")
 library("rstan")
 library("bayesplot")
 library("loo")
+library("rstanarm")
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 ```
@@ -53,7 +60,7 @@ Here we use *roaches* data from **rstanarm** R package.
 
 We want to compare the efficacy of a certain pest management system at reducing the number of roaches in urban apartments.
 
-The experiment was as follows  -- treatment and control were applied to 160 and 104 apartments, respectively, and the outcome measurement y in each apartment was the number of roaches caught in a set of traps. Different apartments had traps for different numbers of days
+The experiment was as follows  -- treatment and control were applied to 160 and 104 apartments, respectively, and the outcome measurement y in each apartment was the number of roaches caught in a set of traps. Different apartments had traps for different numbers of days.
 
 y is the number of roaches caught in a set of traps
 roach1 is the pre-treatment number of roaches

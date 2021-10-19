@@ -5,16 +5,21 @@ output: html_notebook
 
 ```{r}
 library(tidyverse)
+library(here)
 library(brms)
 library(tidybayes)
 options(mc.cores = parallel::detectCores())
 ```
 
 ```{r}
-HF_data <- read_delim("HF_data.csv", 
-    delim = ";", escape_double = FALSE, trim_ws = TRUE)
+HF_data <- read_delim(here("data/HF_data.csv"), 
+    delim = ";", escape_double = FALSE, trim_ws = TRUE) %>% 
+  group_by(county) %>% 
+  sample_frac(0.10) %>% 
+  ungroup()
 #HF_data <- HF_data %>% filter(county != "homeless")
-HF_data <- HF_data %>% select(postacute_therapy, dementia, county, postacute_therapy_binned, age, sex, age_binned10, postacute_LOS, postacute_hospitalisations)
+HF_data <- HF_data %>% 
+  select(postacute_therapy, dementia, county, postacute_therapy_binned, age, sex, age_binned10, postacute_LOS, postacute_hospitalisations)
 HF_data$dementia <- as.factor(HF_data$dementia)
 HF_data
 ```
@@ -24,13 +29,13 @@ HF_data
 
 ```{r}
 m3.1 <- brm(data= HF_data %>% filter(postacute_therapy>0),
-          postacute_therapy~dementia + county, family = lognormal(), file = "m3.1")
+          postacute_therapy~dementia + county, family = lognormal(), chains= 2, file = here("models/m3.1"))
 m3.2 <- brm(data= HF_data %>% filter(postacute_therapy>0),
-          postacute_therapy~dementia * county, family = lognormal(), file = "m3.2")
+          postacute_therapy~dementia * county, family = lognormal(), chains= 2, file = here("models/m3.2"))
 m4 <- brm(data= HF_data %>% filter(postacute_therapy>0),
-          postacute_therapy~dementia + (1|county), family = lognormal(), file = "m4")
+          postacute_therapy~dementia + (1|county), family = lognormal(), chains= 2, file = here("models/m4"))
 m5 <- brm(data= HF_data %>% filter(postacute_therapy>0),
-          postacute_therapy~dementia + (dementia|county), family = lognormal(), file = "m5")
+          postacute_therapy~dementia + (dementia|county), family = lognormal(), chains= 2, file = here("models/m5"))
 
 m3.1l <- loo(m3.1)
 m3.2l <- loo(m3.2)
@@ -58,6 +63,8 @@ rho = sd_county_intercept squared/(sd_county_intercept squared + sigma squared) 
 ```{r}
 posterior_summary(m5)
 ```
+
+
 ```{r}
 pp_check(m5)
 ```
@@ -65,13 +72,16 @@ pp_check(m5)
 ```{r}
 conditional_effects(m3.1, effects="county:dementia")
 ```
+
+
+
 ```{r}
-conditional_effects(m3.1, effects="dementia", conditions = make_conditions(HF_data, "county"))
+conditional_effects(m3.1, effects="dementia", conditions = make_conditions(HF_data %>% filter(postacute_therapy > 0), "county"))
 ```
 
 
 ```{r}
-conditional_effects(m3.2, effects="county:dementia")
+plot(conditional_effects(m3.2, effects="county:dementia"))
 ```
 
 re_formula - A formula containing group-level effects to be considered in the conditional predictions. If NULL, include all group-level effects; if NA (default), include no group-level effects.
@@ -91,6 +101,22 @@ conditional_effects(m5, re_formula = NULL, effects = "dementia", conditions = ma
 ```{r}
 conditional_effects(m5, effects="dementia")
 ```
+
+```{r}
+psm5 <- posterior_samples(m5)
+```
+
+
+```{r}
+psm5$b_dementia1 %>% 
+  posterior_summary()
+```
+
+
+```{r}
+hypothesis(m5, "dementia1 < -0.2")
+```
+
 
 effect size for dementia (difference for 2 medians). 
 
@@ -118,7 +144,8 @@ posterior_predict makes predictions at the data scale (not the means, but datapo
 ## lets practice posterior_epred and compare 1-level and 2-level models
 
 ```{r}
-df1 <- crossing(county= unique(HF_data$county), dementia= c(0,1))
+df1 <- crossing(county = unique(HF_data$county), dementia= c(0,1)) %>% 
+  filter(county != "homeless")
 #new data for which predictions are made
 names <- df1 %>% unite(n, c("county", "dementia")) 
 #column names for predicted means
@@ -152,6 +179,7 @@ fit a full distributional model for predicting PT hrs, where predictors are time
 set.seed(1)
 dd <- HF_data %>% group_by(county) %>% slice_sample(prop = 0.1)
 ```
+
 
 
 

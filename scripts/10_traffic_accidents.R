@@ -32,6 +32,20 @@ onnetused %>%
   geom_bar(aes(hukkunuid, fill = liiklusõnnetuse_liik_1), position = "stack") +
   facet_wrap(~ ilmastik_1, scales = "free")
 
+
+onnetused %>% 
+  ggplot() +
+  geom_bar(aes(hukkunuid), position = "stack") +
+  facet_wrap(~ alaealise_osalusel)
+
+
+
+onnetused %>% 
+  ggplot() +
+  geom_bar(aes(hukkunuid), position = "stack") +
+  facet_wrap(~ alaealise_osalusel)
+
+
 #'
 #' Number of deaths by type and weather1
 #'
