@@ -17,3 +17,36 @@ Coffee breaks and lunches will be provided.
 
 Don’t forget to bring your digital COVID certificate or a recent negative test.   
 
+
+# Course materials
+
+If you are not friends with git, whole repo (all materials included) can be downloaded as a zip file using "Download ZIP" button under green "Code" button.
+
+- Newer materials on Bayesian modeling by Ülo are available in this repo in docs folder [Bayes_eng.pdf](docs/Bayes_eng.pdf) (in English) and [Bayes_est.pdf](docs/Bayes_est.pdf) (in Estonian). Rest of pdfs in the docs folder are Ülo slides. 
+
+- Older materials (last updated Oct-2019) of Bayesian data analysis are available [here](https://rstats-tartu.github.io/bayesiraamat/) as an *ebook* (in Estonian).
+
+- Scripts (and data) is stored in [scripts](scripts/) and [data](data/) folder, respectively. Rmd files in scripts folder need to have paths wrapped into `here` function for these paths to work.
+
+# Software
+
+Taavis course materials were developed using [rocker/verse:4.1.0](https://hub.docker.com/r/rocker/verse/tags) Docker image, followed by installation of following CRAN and non-cran libraries -- tidyverse, lubridate, here, brms, bayesplot, tidybayes, modelr, rstan, rethinking, loo, rstanarm, mice, naniar, qgcomp.
+
+If you want to give a try to this setup, first you need to [get and install Docker](https://docs.docker.com/get-docker/).
+
+Pull rocker/verse image
+```bash
+docker pull rocker/verse:4.1.0
+```
+
+Start local RStudio server and log in with user "rstudio" and password "yourpassword" (for pw, choose what ever you want) 
+```bash
+docker run -e PASSWORD=yourpassword --rm -p 8787:8787 -v /path/to/your/R/projects/folder:/home/rstudio rocker/verse:4.1.0
+```
+
+Then required additional R libraries can be installed using regular `install.packages()` command. 
+
+
+
+
+
