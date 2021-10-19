@@ -234,6 +234,28 @@ Highest Ct values apparently come from individuals infected with AY.9 and AY.4 v
 Using age10 classes may even result in a better fit, but then we don't have it as continuous variable, which is a drawback in following imputation business.
 
 
+Another model with age classes
+```{r}
+fit0.1 <- brm(orf1ab_ct ~ lineage + symptomatic + age10, 
+            data = data, 
+            family = gaussian(), 
+            prior = prior("normal(0, 2.5)", class = "b"),
+            file = here("models/orf1ab_ct ~ lineage + symptomatic + age10"),
+            chains = 2)
+```
+
+
+```{r}
+summary(fit0.1)
+```
+
+
+```{r}
+plot(conditional_effects(fit0.1, effects = "age10"))
+```
+
+
+
 ### Model with imputed data
 
 Let's try to fit another model with "complete" dataset and impute missing values during model fitting.
